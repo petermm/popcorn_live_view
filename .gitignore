@@ -1,0 +1,5 @@
+static/wasm/
+static/assets/
+deps/
+_build/
+erl_crash.dump
