@@ -5,6 +5,7 @@ defmodule WasmLiveView.Layouts do
     %{path: "/", label: "Notes", key: :home},
     %{path: "/counter", label: "Counter", key: :counter},
     %{path: "/streams", label: "Streams", key: :streams},
+    %{path: "/eval", label: "Eval", key: :eval},
   ]
 
   def app(assigns) do

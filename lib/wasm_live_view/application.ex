@@ -7,6 +7,7 @@ defmodule WasmLiveView.Application do
     children = [
       WasmLiveView.Notes,
       {DynamicSupervisor, name: WasmLiveView.ChannelSupervisor, strategy: :one_for_one},
+      WasmLiveView.EvalInWasm,
       WasmLiveView.TransportProcess
     ]
 
