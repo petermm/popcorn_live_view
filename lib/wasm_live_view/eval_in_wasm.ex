@@ -19,16 +19,31 @@ defmodule WasmLiveView.EvalInWasm do
   @impl GenServer
   def handle_call({:eval_elixir, code}, _from, state) do
     try do
-      {:reply, {:ok, inspect(do_eval(code, :elixir))}, state}
+      {value, output} = do_eval(code, :elixir)
+      result = format_result(output, value)
+      {:reply, {:ok, result}, state}
     rescue
       error -> {:reply, {:error, Exception.message(error)}, state}
     end
   end
 
   defp do_eval(code, :elixir) do
-    {evaluated, _new_bindings} = Code.eval_string(code, [], __ENV__)
-    evaluated
+    {:ok, string_io} = StringIO.open("")
+    original_gl = :erlang.group_leader()
+    :erlang.group_leader(string_io, self())
+
+    try do
+      {value, _bindings} = Code.eval_string(code, [], __ENV__)
+      {_input, output} = StringIO.contents(string_io)
+      {value, output}
+    after
+      :erlang.group_leader(original_gl, self())
+      StringIO.close(string_io)
+    end
   end
+
+  defp format_result("", value), do: inspect(value)
+  defp format_result(output, value), do: output <> "=> " <> inspect(value)
 
   defp do_eval(code, {:module, :erlang}) do
     compile_opts = [
