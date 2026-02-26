@@ -62,6 +62,8 @@ defmodule WasmLiveView.MixProject do
   defp cook(_) do
     Mix.Task.run("compile")
     Mix.Task.run("app.config")
+    Mix.Task.run("tailwind", ["wasm_live_view"])
+    Mix.Task.run("esbuild", ["wasm_live_view"])
 
     # 1. Compile stub modules and write their .beam files
     stub_modules = compile_stubs()

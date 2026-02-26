@@ -7,5 +7,6 @@ defmodule WasmLiveView.Router do
     live "/counter", WasmLiveView.CounterLive, :index
     live "/streams", WasmLiveView.StreamsLive, :index
     live "/eval", WasmLiveView.EvalLive, :index
+    live "/interop", WasmLiveView.InteropDemoLive, :index
   end
 end
