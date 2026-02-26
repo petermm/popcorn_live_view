@@ -11,6 +11,14 @@ defmodule WasmLiveView.EvalInWasm do
     GenServer.call(@process_name, {:eval_elixir, code}, 15_000)
   end
 
+  def compile_erlang(code) when is_binary(code) do
+    GenServer.call(@process_name, {:compile_erlang, code}, 15_000)
+  end
+
+  def compile_erlang(code) when is_list(code) do
+    compile_erlang(List.to_string(code))
+  end
+
   @impl GenServer
   def init(_args) do
     {:ok, nil}
@@ -24,6 +32,21 @@ defmodule WasmLiveView.EvalInWasm do
       {:reply, {:ok, result}, state}
     rescue
       error -> {:reply, {:error, Exception.message(error)}, state}
+    end
+  end
+
+  def handle_call({:compile_erlang, code}, _from, state) do
+    try do
+      result = do_compile_erlang(code)
+      {:reply, {:ok, result}, state}
+    rescue
+      e in RuntimeError ->
+        {:reply, {:error, e.message}, state}
+      e ->
+        {:reply, {:error, inspect(e)}, state}
+    catch
+      kind, reason ->
+        {:reply, {:error, "#{kind}: #{inspect(reason)}"}, state}
     end
   end
 
@@ -44,6 +67,27 @@ defmodule WasmLiveView.EvalInWasm do
 
   defp format_result("", value), do: inspect(value)
   defp format_result(output, value), do: output <> "=> " <> inspect(value)
+
+  defp do_compile_erlang(code) do
+    code_list = :unicode.characters_to_list(code, :utf8) ++ ~c"\n"
+    forms = scan_and_parse_forms(code_list, {1, 1})
+    {:ok, module, module_bin} = :compile.forms(forms, [])
+    [{Atom.to_charlist(module) ++ ~c".beam", module_bin}]
+  end
+
+  defp scan_and_parse_forms(remaining, loc) do
+    case :erl_scan.tokens([], remaining, loc) do
+      {:done, {:ok, tokens, end_loc}, rest} ->
+        {:ok, form} = :erl_parse.parse_form(tokens)
+        [form | scan_and_parse_forms(rest, end_loc)]
+
+      {:done, {:eof, _}, _} ->
+        []
+
+      {:more, _} ->
+        []
+    end
+  end
 
   defp do_eval(code, {:module, :erlang}) do
     compile_opts = [
