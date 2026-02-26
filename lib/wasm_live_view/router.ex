@@ -8,5 +8,6 @@ defmodule WasmLiveView.Router do
     live "/streams", WasmLiveView.StreamsLive, :index
     live "/eval", WasmLiveView.EvalLive, :index
     live "/interop", WasmLiveView.InteropDemoLive, :index
+    live "/notes-persisted", WasmLiveView.NotesPersistedLive, :index
   end
 end

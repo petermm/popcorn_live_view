@@ -7,6 +7,7 @@ defmodule WasmLiveView.Layouts do
     %{path: "/streams", label: "Streams", key: :streams},
     %{path: "/eval", label: "Eval", key: :eval},
     %{path: "/interop", label: "JS Interop", key: :interop},
+    %{path: "/notes-persisted", label: "Notes (Persisted)", key: :notes_persisted},
   ]
 
   def app(assigns) do
