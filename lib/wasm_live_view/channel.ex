@@ -52,9 +52,14 @@ defmodule WasmLiveView.Channel do
         _ -> session_data["path"] || "/"
       end
 
+    script_name = WasmLiveView.Endpoint.script_name()
     path_segments = String.split(path, "/", trim: true)
+    route_segments = case List.starts_with?(path_segments, script_name) do
+      true -> Enum.drop(path_segments, length(script_name))
+      false -> path_segments
+    end
 
-    case Phoenix.Router.route_info(WasmLiveView.Router, "GET", path_segments, "localhost") do
+    case Phoenix.Router.route_info(WasmLiveView.Router, "GET", route_segments, "localhost") do
       %{phoenix_live_view: {view, action, opts, live_session}} ->
         verified = %Phoenix.LiveView.Session{
           id: id,

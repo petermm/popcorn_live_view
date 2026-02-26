@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script>
+    // Redirect SPA routes to index.html, preserving the path as a query param.
+    // Technique: https://github.com/rafgraph/spa-github-pages
+    var l = window.location;
+    l.replace(l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+      l.pathname.split('/').slice(0, 2).join('/') +
+      '/?p=' + encodeURIComponent(l.pathname.slice(1) + (l.search ? '&' + l.search.slice(1) : '')) +
+      l.hash);
+  </script>
+</head>
+</html>

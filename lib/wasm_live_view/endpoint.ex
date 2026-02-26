@@ -16,5 +16,10 @@ defmodule WasmLiveView.Endpoint do
 
   def subscribe(_topic), do: :ok
 
-  def script_name, do: []
+  @script_name (case System.get_env("SCRIPT_NAME") do
+    nil -> []
+    name -> String.split(name, "/", trim: true)
+  end)
+
+  def script_name, do: @script_name
 end

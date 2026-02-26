@@ -3,6 +3,10 @@ import { Socket } from "phoenix";
 import { LiveSocket } from "phoenix_live_view";
 import PopcornTransport from "./popcorn_transport.js";
 
+// Derive site root from app.js location (handles GitHub Pages subpath).
+const BASE_URL = new URL("..", import.meta.url).href;
+const BASE_PATH = new URL(BASE_URL).pathname.replace(/\/$/, "");
+
 // JS Interop Demo hooks
 const Hooks = {};
 
@@ -66,13 +70,13 @@ async function setupSQLite() {
   // sql-wasm.js is a UMD script — load as classic script to set window.initSqlJs
   await new Promise((resolve, reject) => {
     const s = document.createElement("script");
-    s.src = "/wasm/sql-wasm.js";
+    s.src = BASE_URL + "sql-wasm.js";
     s.onload = resolve;
     s.onerror = reject;
     document.head.appendChild(s);
   });
 
-  const SQL = await window.initSqlJs({ locateFile: () => "/wasm/sql-wasm.wasm" });
+  const SQL = await window.initSqlJs({ locateFile: () => BASE_URL + "sql-wasm.wasm" });
 
   // Load existing DB from OPFS if present, otherwise start fresh
   const existing = await opfsLoad();
@@ -96,11 +100,10 @@ async function setup() {
   console.log("[WasmLiveView] Initializing Popcorn...");
 
   // Popcorn is loaded dynamically (external to the bundle, served from /wasm/)
-  const { Popcorn } = await import("/wasm/popcorn.js");
+  const { Popcorn } = await import(/* @vite-ignore */ BASE_URL + "wasm/popcorn.js");
 
   const popcorn = await Popcorn.init({
-    bundlePath: "/wasm/bundle.avm",
-    wasmDir: "/wasm/",
+    bundlePath: new URL(BASE_URL).pathname.slice(1) + "wasm/bundle.avm",
     onStdout: (msg) => console.log("[WASM stdout]", msg),
     onStderr: (msg) => console.error("[WASM stderr]", msg),
   });
@@ -114,7 +117,7 @@ async function setup() {
   // The session is a JSON map (not a signed token) - our modified
   // LiveView.Channel accepts this when connect_info[:popcorn] is set.
   const viewId = "phx-wasm-1";
-  const path = window.location.pathname || "/";
+  const path = window.location.pathname.slice(BASE_PATH.length) || "/";
   const session = JSON.stringify({
     path: path,
     id: viewId,

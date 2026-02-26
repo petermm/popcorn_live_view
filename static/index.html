@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="/assets/css/app.css" />
+  <link rel="stylesheet" href="assets/css/app.css" />
   <title>LiveView in WASM</title>
 </head>
 <body>
@@ -12,6 +12,49 @@
       Loading WASM runtime...
     </p>
   </div>
-  <script type="module" src="/assets/app.js"></script>
+  <script>
+    // Restore path after 404.html redirect (SPA deep-link support on GitHub Pages).
+    (function () {
+      var p = new URLSearchParams(window.location.search).get('p');
+      if (p) window.history.replaceState(null, '', '/' + p);
+    })();
+  </script>
+  <script>
+    // Install the COI service worker (needed on GitHub Pages which can't set HTTP headers).
+    // The SW injects Cross-Origin-Opener-Policy + Cross-Origin-Embedder-Policy so
+    // SharedArrayBuffer / WASM threads work. We must not load app.js until the SW
+    // controls this page, otherwise fetches escape without the required headers.
+    (function () {
+      if (!("serviceWorker" in navigator)) return loadApp();
+
+      navigator.serviceWorker.register("coi-serviceworker.js").then(function (reg) {
+        // Already controlling this page — safe to load
+        if (navigator.serviceWorker.controller) return loadApp();
+
+        // SW just activated for the first time — reload so it intercepts all fetches
+        var sw = reg.installing || reg.waiting;
+        if (sw) {
+          sw.addEventListener("statechange", function (e) {
+            if (e.target.state === "activated") window.location.reload();
+          });
+        } else {
+          // SW was already installed but not yet controlling (waiting for claim)
+          navigator.serviceWorker.addEventListener("controllerchange", function () {
+            window.location.reload();
+          });
+        }
+      }).catch(function (err) {
+        console.error("SW registration failed:", err);
+        loadApp(); // degrade gracefully (won't work on GH Pages without COEP, but try)
+      });
+
+      function loadApp() {
+        var s = document.createElement("script");
+        s.type = "module";
+        s.src = "assets/app.js";
+        document.body.appendChild(s);
+      }
+    })();
+  </script>
 </body>
 </html>
