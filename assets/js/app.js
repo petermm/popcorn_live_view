@@ -41,6 +41,57 @@ Hooks.FlashBox = {
   },
 };
 
+// OPFS helpers: load/save the entire SQLite DB binary
+async function opfsLoad() {
+  try {
+    const root = await navigator.storage.getDirectory();
+    const fh = await root.getFileHandle("popcorn_notes.sqlite");
+    const file = await fh.getFile();
+    return new Uint8Array(await file.arrayBuffer());
+  } catch {
+    return null; // file doesn't exist yet
+  }
+}
+
+async function opfsSave(db) {
+  const data = db.export();
+  const root = await navigator.storage.getDirectory();
+  const fh = await root.getFileHandle("popcorn_notes.sqlite", { create: true });
+  const writable = await fh.createWritable();
+  await writable.write(data);
+  await writable.close();
+}
+
+async function setupSQLite() {
+  // sql-wasm.js is a UMD script — load as classic script to set window.initSqlJs
+  await new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "/wasm/sql-wasm.js";
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+
+  const SQL = await window.initSqlJs({ locateFile: () => "/wasm/sql-wasm.wasm" });
+
+  // Load existing DB from OPFS if present, otherwise start fresh
+  const existing = await opfsLoad();
+  const db = existing ? new SQL.Database(existing) : new SQL.Database();
+
+  db.run(`CREATE TABLE IF NOT EXISTS notes (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    body TEXT,
+    inserted_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`);
+
+  window.__sqliteDB = db;
+  // Fire-and-forget save — called by Elixir after each write via run_js
+  window.__sqliteSave = () => opfsSave(db).catch(console.error);
+  console.log("[WasmLiveView] SQLite ready, persisted via OPFS");
+}
+
 async function setup() {
   console.log("[WasmLiveView] Initializing Popcorn...");
 
@@ -94,6 +145,8 @@ async function setup() {
   window.popcorn = popcorn;
 }
 
-setup().catch((err) => {
-  console.error("[WasmLiveView] Setup failed:", err);
-});
+setupSQLite()
+  .then(() => setup())
+  .catch((err) => {
+    console.error("[WasmLiveView] Setup failed:", err);
+  });

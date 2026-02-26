@@ -8,6 +8,7 @@ defmodule WasmLiveView.Layouts do
     %{path: "/eval", label: "Eval", key: :eval},
     %{path: "/interop", label: "JS Interop", key: :interop},
     %{path: "/notes-persisted", label: "Notes (Persisted)", key: :notes_persisted},
+    %{path: "/notes-sqlite", label: "Notes (SQLite)", key: :notes_sqlite},
   ]
 
   def app(assigns) do
