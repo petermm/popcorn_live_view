@@ -11,6 +11,7 @@ defmodule WasmLiveView.Layouts do
     %{path: @script_prefix <> "/interop", label: "JS Interop", key: :interop},
     %{path: @script_prefix <> "/notes-persisted", label: "Notes (Persisted)", key: :notes_persisted},
     %{path: @script_prefix <> "/notes-sqlite", label: "Notes (SQLite)", key: :notes_sqlite},
+    %{path: @script_prefix <> "/req-demo", label: "Req Demo", key: :req_demo},
   ]
 
   def app(assigns) do

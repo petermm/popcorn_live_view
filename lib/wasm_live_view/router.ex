@@ -10,5 +10,6 @@ defmodule WasmLiveView.Router do
     live "/interop", WasmLiveView.InteropDemoLive, :index
     live "/notes-persisted", WasmLiveView.NotesPersistedLive, :index
     live "/notes-sqlite", WasmLiveView.NotesSqliteLive, :index
+    live "/req-demo", WasmLiveView.ReqDemoLive, :index
   end
 end

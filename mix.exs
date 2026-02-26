@@ -23,6 +23,7 @@ defmodule WasmLiveView.MixProject do
   defp deps do
     [
       {:popcorn, github: "SteffenDE/popcorn", branch: "sd-lv"},
+      {:req, "~> 0.5.17", runtime: false},
       {:phoenix, "~> 1.8", runtime: false},
       {:phoenix_live_view, github: "SteffenDE/phoenix_live_view", branch: "sd-popcorn", override: true, runtime: false},
       {:phoenix_html, "~> 4.1", runtime: false},
@@ -71,7 +72,7 @@ defmodule WasmLiveView.MixProject do
 
     # 2. Collect beams from runtime: false deps, excluding those overridden by stubs
     dep_beams =
-      ~w[phoenix phoenix_live_view phoenix_html phoenix_template phoenix_ecto ecto plug]
+      ~w[phoenix phoenix_live_view phoenix_html phoenix_template phoenix_ecto ecto plug req]
       |> Enum.flat_map(fn dep ->
         Path.wildcard(Path.join([Mix.Project.build_path(), "lib", dep, "ebin", "*.beam"]))
       end)
