@@ -45,6 +45,31 @@ Hooks.FlashBox = {
   },
 };
 
+// Geolocation hook: gets browser geolocation when triggered
+Hooks.Geolocation = {
+  mounted() {
+    this.handleEvent("request-location", () => {
+      if (!navigator.geolocation) {
+        this.pushEvent("location-error", { error: "Geolocation not supported" });
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          this.pushEvent("location-found", {
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+          });
+        },
+        (err) => {
+          this.pushEvent("location-error", { error: err.message });
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+  },
+};
+
 // OPFS helpers: load/save the entire SQLite DB binary
 async function opfsLoad() {
   try {

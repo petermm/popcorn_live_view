@@ -13,7 +13,8 @@ defmodule WasmLiveView.Layouts do
     %{path: @script_prefix <> "/notes-sqlite", label: "Notes (SQLite)", key: :notes_sqlite},
     %{path: @script_prefix <> "/req-demo", label: "Req Demo", key: :req_demo},
     %{path: @script_prefix <> "/packbeam", label: "Packbeam", key: :packbeam},
-    %{path: @script_prefix <> "/debug-pack", label: "Debug Pack", key: :debug_pack}
+    %{path: @script_prefix <> "/debug-pack", label: "Debug Pack", key: :debug_pack},
+    %{path: @script_prefix <> "/weather", label: "LocalWeather", key: :weather}
   ]
 
   def app(assigns) do
