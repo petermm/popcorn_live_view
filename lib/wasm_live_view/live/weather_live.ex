@@ -5,14 +5,33 @@ defmodule WasmLiveView.WeatherLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok,
-     assign(socket,
-       current_route: :weather,
-       loading: false,
-       error: nil,
-       weather: nil,
-       location: nil
-     )}
+    socket =
+      assign(socket,
+        current_route: :weather,
+        loading: false,
+        error: nil,
+        weather: nil,
+        location: nil
+      )
+
+    socket =
+      if connected?(socket),
+        do: push_event(socket, "check-permission", %{}),
+        else: socket
+
+    {:ok, socket}
+  end
+
+  @impl true
+  def handle_event("permission-result", %{"granted" => true}, socket) do
+    {:noreply,
+     socket
+     |> assign(loading: true, error: nil, weather: nil, location: nil)
+     |> push_event("request-location", %{})}
+  end
+
+  def handle_event("permission-result", %{"granted" => false}, socket) do
+    {:noreply, socket}
   end
 
   @impl true
@@ -144,7 +163,7 @@ defmodule WasmLiveView.WeatherLive do
   def render(assigns) do
     ~H"""
     <.header>
-      Weather
+      LocalWeather
       <:subtitle>Get your local weather using browser geolocation and the Open-Meteo API.</:subtitle>
     </.header>
 

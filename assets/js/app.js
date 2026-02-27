@@ -20,7 +20,11 @@ Hooks.Ping = {
     clearInterval(this.timer);
   },
   send() {
-    this.pushEvent("hook-ping", { msg: `ping at ${new Date().toLocaleTimeString()}` }, () => {});
+    this.pushEvent(
+      "hook-ping",
+      { msg: `ping at ${new Date().toLocaleTimeString()}` },
+      () => {},
+    );
   },
 };
 
@@ -48,9 +52,23 @@ Hooks.FlashBox = {
 // Geolocation hook: gets browser geolocation when triggered
 Hooks.Geolocation = {
   mounted() {
+    this.handleEvent("check-permission", () => {
+      if (!navigator.permissions) return;
+      navigator.permissions
+        .query({ name: "geolocation" })
+        .then((result) => {
+          if (result.state !== "denied") {
+            this.pushEvent("permission-result", { granted: true });
+          }
+        })
+        .catch(() => {});
+    });
+
     this.handleEvent("request-location", () => {
       if (!navigator.geolocation) {
-        this.pushEvent("location-error", { error: "Geolocation not supported" });
+        this.pushEvent("location-error", {
+          error: "Geolocation not supported",
+        });
         return;
       }
 
@@ -64,7 +82,7 @@ Hooks.Geolocation = {
         (err) => {
           this.pushEvent("location-error", { error: err.message });
         },
-        { enableHighAccuracy: true, timeout: 10000 }
+        { enableHighAccuracy: true, timeout: 10000 },
       );
     });
   },
@@ -101,7 +119,9 @@ async function setupSQLite() {
     document.head.appendChild(s);
   });
 
-  const SQL = await window.initSqlJs({ locateFile: () => BASE_URL + "sql-wasm.wasm" });
+  const SQL = await window.initSqlJs({
+    locateFile: () => BASE_URL + "sql-wasm.wasm",
+  });
 
   // Load existing DB from OPFS if present, otherwise start fresh
   const existing = await opfsLoad();
@@ -125,7 +145,9 @@ async function setup() {
   console.log("[WasmLiveView] Initializing Popcorn...");
 
   // Popcorn is loaded dynamically (external to the bundle, served from /wasm/)
-  const { Popcorn } = await import(/* @vite-ignore */ BASE_URL + "wasm/popcorn.js");
+  const { Popcorn } = await import(
+    /* @vite-ignore */ BASE_URL + "wasm/popcorn.js"
+  );
 
   const popcorn = await Popcorn.init({
     bundlePath: new URL(BASE_URL).pathname.slice(1) + "wasm/bundle.avm",
