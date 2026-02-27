@@ -70,7 +70,17 @@ defmodule WasmLiveView.DebugPackLive do
      """}
   ]
 
+  @api_tests [
+    {:multi_module, "create_from_binaries([a,b,c]) → 3 elements"},
+    {:io_format_regression, "hello_world with io:format → 1 element"},
+    {:source_text, "greet + util from source text → 2 elements"},
+    {:lib_option, "create_from_binaries([a,b], \#{lib: true}) → ok"},
+    {:prune_drops_d, "prune([a…f]) drops unreachable d"},
+    {:prune_sup_callback, "prune keeps my_worker (only in literal child spec map)"}
+  ]
+
   @file_names Enum.map(@test_files, fn {name, _} -> name end)
+  @api_test_names Enum.map(@api_tests, fn {name, _} -> name end)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -79,6 +89,8 @@ defmodule WasmLiveView.DebugPackLive do
        current_route: :debug_pack,
        loading: false,
        files: @file_names,
+       api_tests: @api_tests,
+       api_test_names: @api_test_names,
        results: %{},
        current_file: nil
      )}
@@ -86,30 +98,30 @@ defmodule WasmLiveView.DebugPackLive do
 
   @impl true
   def render(assigns) do
+    total = length(assigns.files) + length(assigns.api_test_names)
+
+    assigns = assign(assigns, total: total)
+
     ~H"""
     <.header>
       Debug Pack — Test Suite
     </.header>
 
     <div class="mt-8 flex flex-col gap-4 max-w-2xl">
-      <p class="text-sm text-base-content/70">
-        Compiles each test <code>.erl</code> snippet via the Popcorn compiler
-        and packs it via <code>packbeam_api</code>.
-      </p>
-
       <div class="flex items-center gap-4">
         <.button phx-click="run" variant="primary" disabled={@loading}>
           {if @loading, do: "Running…", else: "Run All"}
         </.button>
         <span :if={@loading && @current_file} class="text-sm text-base-content/60 italic">
-          compiling {@current_file}…
+          running {@current_file}…
         </span>
         <span :if={map_size(@results) > 0 && !@loading} class="text-sm text-base-content/60">
-          {pass_count(@results)}/{length(@files)} passed
+          {pass_count(@results)}/{@total} passed
         </span>
       </div>
 
-      <table class="table table-sm w-full mt-2">
+      <h3 class="text-base font-semibold mt-4">Compile &amp; Pack (single module)</h3>
+      <table class="table table-sm w-full">
         <thead>
           <tr>
             <th class="w-8"></th>
@@ -119,31 +131,60 @@ defmodule WasmLiveView.DebugPackLive do
         </thead>
         <tbody>
           <tr :for={file <- @files} class="hover">
-            <td>
-              <span :if={match?({:ok, _}, @results[file])}>✓</span>
-              <span :if={match?({:error, _}, @results[file])}>✗</span>
-              <span
-                :if={@current_file == file && !Map.has_key?(@results, file)}
-                class="loading loading-spinner loading-xs"
-              >
-              </span>
-            </td>
+            <td><.status_cell key={file} results={@results} current={@current_file} /></td>
             <td class="font-mono text-sm">{file}</td>
-            <td class="text-sm">
-              <span :if={match?({:ok, _}, @results[file])} class="text-success">
-                {elem(@results[file], 1)}
-              </span>
-              <span :if={match?({:error, _}, @results[file])} class="text-error">
-                <details>
-                  <summary class="cursor-pointer">error</summary>
-                  <pre class="text-xs whitespace-pre-wrap mt-1">{elem(@results[file], 1)}</pre>
-                </details>
-              </span>
-            </td>
+            <td class="text-sm"><.result_cell key={file} results={@results} /></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 class="text-base font-semibold mt-4">API Tests (multi-module &amp; options)</h3>
+      <table class="table table-sm w-full">
+        <thead>
+          <tr>
+            <th class="w-8"></th>
+            <th>Test</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={{name, desc} <- @api_tests} class="hover">
+            <td><.status_cell key={name} results={@results} current={@current_file} /></td>
+            <td class="text-sm">{desc}</td>
+            <td class="text-sm"><.result_cell key={name} results={@results} /></td>
           </tr>
         </tbody>
       </table>
     </div>
+    """
+  end
+
+  defp status_cell(%{key: key, results: results, current: current} = assigns) do
+    assigns =
+      assign(assigns,
+        ok: match?({:ok, _}, results[key]),
+        err: match?({:error, _}, results[key]),
+        spinning: current == key && !Map.has_key?(results, key)
+      )
+
+    ~H"""
+    <span :if={@ok}>✓</span>
+    <span :if={@err}>✗</span>
+    <span :if={@spinning} class="loading loading-spinner loading-xs"></span>
+    """
+  end
+
+  defp result_cell(%{key: key, results: results} = assigns) do
+    assigns = assign(assigns, r: results[key])
+
+    ~H"""
+    <span :if={match?({:ok, _}, @r)} class="text-success">{elem(@r, 1)}</span>
+    <span :if={match?({:error, _}, @r)} class="text-error">
+      <details>
+        <summary class="cursor-pointer">error</summary>
+        <pre class="text-xs whitespace-pre-wrap mt-1">{elem(@r, 1)}</pre>
+      </details>
+    </span>
     """
   end
 
@@ -162,6 +203,12 @@ defmodule WasmLiveView.DebugPackLive do
         send(lv, {:pack_result, file, result})
       end)
 
+      Enum.each(@api_tests, fn {name, _desc} ->
+        send(lv, {:pack_start, name})
+        result = WasmLiveView.EvalInWasm.run_api_test(name)
+        send(lv, {:pack_result, name, result})
+      end)
+
       send(lv, :pack_done)
     end)
 
@@ -169,12 +216,12 @@ defmodule WasmLiveView.DebugPackLive do
   end
 
   @impl true
-  def handle_info({:pack_start, file}, socket) do
-    {:noreply, assign(socket, current_file: file)}
+  def handle_info({:pack_start, key}, socket) do
+    {:noreply, assign(socket, current_file: key)}
   end
 
-  def handle_info({:pack_result, file, result}, socket) do
-    {:noreply, assign(socket, results: Map.put(socket.assigns.results, file, result))}
+  def handle_info({:pack_result, key, result}, socket) do
+    {:noreply, assign(socket, results: Map.put(socket.assigns.results, key, result))}
   end
 
   def handle_info(:pack_done, socket) do
