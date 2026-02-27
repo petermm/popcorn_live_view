@@ -18,7 +18,7 @@ defmodule WasmLiveView.EvalLive do
   def render(assigns) do
     ~H"""
     <.header>
-      Eval
+      Elixir eval
       <:subtitle>Evaluate Elixir code in the browser via Popcorn WASM.</:subtitle>
     </.header>
 

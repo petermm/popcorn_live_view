@@ -7,7 +7,7 @@ defmodule WasmLiveView.Layouts do
     %{path: @script_prefix <> "/", label: "Notes", key: :home},
     %{path: @script_prefix <> "/counter", label: "Counter", key: :counter},
     %{path: @script_prefix <> "/streams", label: "Streams", key: :streams},
-    %{path: @script_prefix <> "/eval", label: "Eval", key: :eval},
+    %{path: @script_prefix <> "/eval", label: "Elixir eval", key: :eval},
     %{path: @script_prefix <> "/interop", label: "JS Interop", key: :interop},
     %{path: @script_prefix <> "/notes-persisted", label: "Notes (Persisted)", key: :notes_persisted},
     %{path: @script_prefix <> "/notes-sqlite", label: "Notes (SQLite)", key: :notes_sqlite},
