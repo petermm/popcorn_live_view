@@ -1,6 +1,30 @@
 Mix.install([
-  {:bandit, "~> 1.1"}
+  {:bandit, "~> 1.1"},
+  {:file_system, "~> 1.0"}
 ])
+
+defmodule FileWatcher do
+  def start(dirs) do
+    spawn(fn ->
+      {:ok, watcher} = FileSystem.start_link(dirs: dirs)
+      FileSystem.subscribe(watcher)
+      loop()
+    end)
+  end
+
+  defp loop(timer \\ nil) do
+    receive do
+      {:file_event, _watcher, {_path, _events}} ->
+        if timer, do: Process.cancel_timer(timer)
+        loop(Process.send_after(self(), :cook, 1000))
+
+      :cook ->
+        IO.puts("\n[watcher] change detected, running mix cook...")
+        System.cmd("mix", ["cook"], into: IO.stream(:stdio, :line), cd: File.cwd!())
+        loop(nil)
+    end
+  end
+end
 
 defmodule Router do
   use Plug.Router
@@ -35,6 +59,8 @@ defmodule Router do
 end
 
 {opts, _argv} = OptionParser.parse!(System.argv(), strict: [port: :integer])
+
+FileWatcher.start(["lib"])
 
 bandit = {Bandit, plug: Router, scheme: :http, port: Keyword.get(opts, :port, 4000)}
 {:ok, _} = Supervisor.start_link([bandit], strategy: :one_for_one)
