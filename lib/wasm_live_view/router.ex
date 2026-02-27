@@ -12,5 +12,6 @@ defmodule WasmLiveView.Router do
     live "/notes-sqlite", WasmLiveView.NotesSqliteLive, :index
     live "/req-demo", WasmLiveView.ReqDemoLive, :index
     live "/packbeam", WasmLiveView.PackbeamLive, :index
+    live "/debug-pack", WasmLiveView.DebugPackLive, :index
   end
 end

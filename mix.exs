@@ -23,12 +23,14 @@ defmodule WasmLiveView.MixProject do
   defp deps do
     [
       {:popcorn, github: "SteffenDE/popcorn", branch: "sd-lv"},
-      #{:popcorn, path: "../popcorn"},
-      {:atomvm_packbeam,  github: "petermm/atomvm_packbeam", branch: "atomvm-compat", runtime: false},
-      #{:atomvm_packbeam,  path: "../atomvm_packbeam", runtime: false},
+      # {:popcorn, path: "../popcorn"},
+      {:atomvm_packbeam,
+       github: "petermm/atomvm_packbeam", branch: "atomvm-compat", runtime: false},
+      # {:atomvm_packbeam, path: "../atomvm_packbeam", runtime: false},
       {:req, "~> 0.5.17", runtime: false},
       {:phoenix, "~> 1.8", runtime: false},
-      {:phoenix_live_view, github: "SteffenDE/phoenix_live_view", branch: "sd-popcorn", override: true, runtime: false},
+      {:phoenix_live_view,
+       github: "SteffenDE/phoenix_live_view", branch: "sd-popcorn", override: true, runtime: false},
       {:phoenix_html, "~> 4.1", runtime: false},
       {:phoenix_ecto, "~> 4.6", runtime: false},
       {:ecto, "~> 3.12", runtime: false},
@@ -42,7 +44,7 @@ defmodule WasmLiveView.MixProject do
        sparse: "optimized",
        app: false,
        compile: false,
-       depth: 1},
+       depth: 1}
     ]
   end
 

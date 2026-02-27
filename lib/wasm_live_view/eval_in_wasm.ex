@@ -19,6 +19,14 @@ defmodule WasmLiveView.EvalInWasm do
     compile_erlang(List.to_string(code))
   end
 
+  def debug_pack do
+    GenServer.call(@process_name, :debug_pack, 15_000)
+  end
+
+  def compile_and_pack(src) when is_binary(src) do
+    GenServer.call(@process_name, {:compile_and_pack, src}, 30_000)
+  end
+
   @impl GenServer
   def init(_args) do
     {:ok, nil}
@@ -35,6 +43,47 @@ defmodule WasmLiveView.EvalInWasm do
     end
   end
 
+  def handle_call(:debug_pack, _from, state) do
+    result =
+      try do
+        src =
+          "-module(hello_world).\n-export([start/0]).\nstart() -> io:format(\"Hello world!~n\").\n"
+
+        [{filename, beam}] = do_compile_erlang(src)
+
+        IO.inspect("made it so far")
+
+        case :packbeam_api.create_from_binaries([{filename, beam}]) do
+          {:ok, avm} -> {:ok, "OK, AVM size: #{byte_size(avm)} bytes"}
+          {:error, r} -> {:error, inspect(r)}
+        end
+      catch
+        kind, reason ->
+          st = __STACKTRACE__
+          {:error, "#{kind}: #{inspect(reason)}\n#{Exception.format_stacktrace(st)}"}
+      end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:compile_and_pack, src}, _from, state) do
+    result =
+      try do
+        [{filename, beam}] = do_compile_erlang(src)
+
+        case :packbeam_api.create_from_binaries([{filename, beam}]) do
+          {:ok, avm} -> {:ok, "AVM #{byte_size(avm)}B"}
+          {:error, r} -> {:error, inspect(r)}
+        end
+      catch
+        kind, reason ->
+          st = __STACKTRACE__
+          {:error, "#{kind}: #{inspect(reason)}\n#{Exception.format_stacktrace(st)}"}
+      end
+
+    {:reply, result, state}
+  end
+
   def handle_call({:compile_erlang, code}, _from, state) do
     try do
       result = do_compile_erlang(code)
@@ -42,6 +91,7 @@ defmodule WasmLiveView.EvalInWasm do
     rescue
       e in RuntimeError ->
         {:reply, {:error, e.message}, state}
+
       e ->
         {:reply, {:error, inspect(e)}, state}
     catch
