@@ -5,7 +5,8 @@ defmodule WasmLiveView.PackbeamLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, :current_route, :packbeam) |> assign(result: nil, error: nil, loading: false)}
+    {:ok,
+     assign(socket, :current_route, :packbeam) |> assign(result: nil, error: nil, loading: false)}
   end
 
   @impl true
@@ -20,8 +21,8 @@ defmodule WasmLiveView.PackbeamLive do
         <div>
           <label for="source" class="block text-sm font-medium leading-6 text-base-content mb-2">Erlang source</label>
           <textarea id="source" name="source" rows="6" class="textarea textarea-bordered w-full">-module(a).
--export([start/0]).
-start() -> ok.</textarea>
+    -export([start/0]).
+    start() -> ok.</textarea>
         </div>
         <div>
           <.button type="submit" variant="primary" disabled={@loading}>
@@ -45,10 +46,12 @@ start() -> ok.</textarea>
   @impl true
   def handle_event("save", %{"source" => source}, socket) do
     lv = self()
+
     spawn(fn ->
       result =
         try do
           input = WasmLiveView.EvalInWasm.compile_erlang(source)
+
           case input do
             {:ok, compiled} ->
               IO.inspect(compiled, label: "compiled!!")
@@ -56,6 +59,7 @@ start() -> ok.</textarea>
               result = :packbeam_api.create_from_binaries(compiled)
               IO.inspect(result, label: "create_from_binaries result")
               result
+
             {:error, reason} ->
               {:error, reason, "compile failed for: #{source}"}
           end
@@ -67,15 +71,22 @@ start() -> ok.</textarea>
             Enum.each(stacktrace, fn frame -> IO.puts("   #{inspect(frame)}") end)
             {:error, {kind, inspect(reason), Exception.format_stacktrace(stacktrace)}}
         end
+
       send(lv, {:packbeam_result, result})
     end)
+
     {:noreply, assign(socket, loading: true, result: nil, error: nil)}
   end
 
   @impl true
   def handle_info({:packbeam_result, {:ok, avm_binary}}, socket) when is_binary(avm_binary) do
     encoded = Base.encode64(avm_binary)
-    {:noreply, assign(socket, loading: false, result: "AVM file (#{byte_size(avm_binary)} bytes):\n\n#{encoded}")}
+
+    {:noreply,
+     assign(socket,
+       loading: false,
+       result: "AVM file (#{byte_size(avm_binary)} bytes):\n\n#{encoded}"
+     )}
   end
 
   def handle_info({:packbeam_result, {:error, reason, input}}, socket) do
