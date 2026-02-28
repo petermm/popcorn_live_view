@@ -95,11 +95,12 @@ defmodule WasmLiveView.MixProject do
   defp compile_stubs do
     File.mkdir_p!(@stubs_out)
 
-    # Purge any previously loaded versions of stub modules so Code.compile_file works
-    stub_files = Path.wildcard(Path.join([@stubs_dir, "*.ex"]))
+    ex_files = Path.wildcard(Path.join([@stubs_dir, "*.ex"]))
+    erl_files = Path.wildcard(Path.join([@stubs_dir, "*.erl"]))
 
-    all_modules =
-      for file <- stub_files, reduce: [] do
+    # Compile Elixir stubs
+    ex_modules =
+      for file <- ex_files, reduce: [] do
         acc ->
           modules = Code.compile_file(file)
 
@@ -111,6 +112,21 @@ defmodule WasmLiveView.MixProject do
           acc ++ modules
       end
 
-    all_modules
+    # Compile Erlang stubs (.erl → .beam via :compile)
+    erl_modules =
+      for file <- erl_files, reduce: [] do
+        acc ->
+          case :compile.file(to_charlist(file), [:binary, :return_errors]) do
+            {:ok, mod, binary} ->
+              beam_path = Path.join(@stubs_out, "#{mod}.beam")
+              File.write!(beam_path, binary)
+              acc ++ [{mod, binary}]
+
+            {:error, errors, _warnings} ->
+              Mix.raise("Failed to compile #{file}: #{inspect(errors)}")
+          end
+      end
+
+    ex_modules ++ erl_modules
   end
 end
