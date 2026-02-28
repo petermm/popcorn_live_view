@@ -53,8 +53,8 @@ defmodule WasmLiveView.WeatherLive do
       result =
         try do
           url = "https://api.open-meteo.com/v1/forecast?latitude=#{lat_f}&longitude=#{lon_f}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
-          uri = URI.new!(url)
-          resp = Req.get!(uri, adapter: &WasmLiveView.WasmFetchAdapter.run/1, decode_body: false)
+          # uri = URI.new!(url)
+          resp = Req.get!(url, adapter: &WasmLiveView.WasmFetchAdapter.run/1, decode_body: false)
 
           IO.inspect(resp)
           case resp.status do

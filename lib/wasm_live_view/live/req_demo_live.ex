@@ -122,8 +122,8 @@ defmodule WasmLiveView.ReqDemoLive do
           # URI.new!/1 uses :uri_string.parse (available in AtomVM) rather than
           # :re (unavailable in WASM). Passing a %URI{} to Req bypasses the
           # regex-based URL normalisation — URI.parse(%URI{}) is a no-op.
-          uri = URI.new!(url)
-
+          #uri = URI.new!(url)
+          uri = url
           # decode_body: true is the default — Req checks content-type via the MIME
           # package and calls Jason to decode JSON responses automatically.
           req_opts = [adapter: @adapter]
@@ -295,12 +295,13 @@ defmodule WasmLiveView.ReqDemoLive do
     <%!-- AtomVM constraint note --%>
     <div class="mt-4 rounded-lg bg-base-200 border border-base-300 px-4 py-3 text-xs text-base-content/70 space-y-1">
       <p class="font-semibold text-base-content/80">AtomVM constraint — no <code class="font-mono">:re</code> module</p>
-      <p>
+      <del>
         Req calls <code class="font-mono">URI.parse/1</code> on URL strings, which uses <code class="font-mono">:re</code> internally — unavailable in WASM.
         Instead we build a <code class="font-mono">%URI{}</code> via <code class="font-mono">URI.new!/1</code>
         (backed by <code class="font-mono">:uri_string.parse/1</code>) and pass the struct.
         <code class="font-mono">URI.parse(%URI{})</code> is then a no-op and the regex path is never hit.
-      </p>
+      </del>
+      <p>Solved by stubbing out the :re module</p>
     </div>
 
     <%!-- Error --%>
