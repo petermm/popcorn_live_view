@@ -155,6 +155,20 @@ defmodule WasmLiveView.DebugPackLive do
           </tr>
         </tbody>
       </table>
+
+      <div class="rounded-lg bg-base-200 border border-base-300 px-4 py-3 text-xs text-base-content/70 space-y-1">
+        <p class="font-semibold text-base-content/80">
+          Expected failure — <code class="font-mono">prune_sup_callback</code>
+        </p>
+        <p>
+          The <em>prune keeps my_worker</em> test is expected to fail in this WASM build.
+          OTP 26+ compresses the literal chunk in BEAM files, so reading the child-spec
+          literal map requires <code class="font-mono">zlib:uncompress/1</code> —
+          which is currently not available in Popcorn. Until compressed literals are supported,
+          packbeam cannot walk the literal table to discover the
+          <code class="font-mono">my_worker</code> reference, and prune will drop it.
+        </p>
+      </div>
     </div>
     """
   end
