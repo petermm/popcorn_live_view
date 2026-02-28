@@ -9,7 +9,8 @@ defmodule WasmLiveView.ReqDemoLive do
     %{
       id: :uuid,
       label: "UUID",
-      desc: "Basic GET — resp.body is automatically decoded to an Elixir map via decode_body: true",
+      desc:
+        "Basic GET — resp.body is automatically decoded to an Elixir map via decode_body: true",
       url: "https://httpbin.org/uuid",
       method: :get,
       body: nil,
@@ -60,6 +61,18 @@ defmodule WasmLiveView.ReqDemoLive do
       params: nil,
       extra_headers: nil,
       snippet: "resp.status == 418, resp.body is binary"
+    },
+    %{
+      id: :gzip,
+      label: "Gzip",
+      desc:
+        "httpbin serves a gzip-compressed body — but the browser's fetch() always decompresses and strips content-encoding before exposing the response. AtomVM sees plain text with no special handling needed.",
+      url: "https://httpbin.org/gzip",
+      method: :get,
+      body: nil,
+      params: nil,
+      extra_headers: nil,
+      snippet: "Req.get!(uri, adapter: adapter)  # regular adapter, browser decompresses transparently"
     },
     %{
       id: :post,
@@ -122,7 +135,7 @@ defmodule WasmLiveView.ReqDemoLive do
           # URI.new!/1 uses :uri_string.parse (available in AtomVM) rather than
           # :re (unavailable in WASM). Passing a %URI{} to Req bypasses the
           # regex-based URL normalisation — URI.parse(%URI{}) is a no-op.
-          #uri = URI.new!(url)
+          # uri = URI.new!(url)
           uri = url
           # decode_body: true is the default — Req checks content-type via the MIME
           # package and calls Jason to decode JSON responses automatically.
@@ -145,7 +158,14 @@ defmodule WasmLiveView.ReqDemoLive do
               :post ->
                 # Idiomatic Req would use json: %{...} to encode + set content-type.
                 # We encode to a binary string here for WASM adapter compatibility.
-                Req.post!(uri, req_opts ++ [body: Jason.encode!(demo.body), headers: [{"content-type", "application/json"}]])
+                Req.post!(
+                  uri,
+                  req_opts ++
+                    [
+                      body: Jason.encode!(demo.body),
+                      headers: [{"content-type", "application/json"}]
+                    ]
+                )
 
               _ ->
                 Req.get!(uri, req_opts)
@@ -302,6 +322,16 @@ defmodule WasmLiveView.ReqDemoLive do
         <code class="font-mono">URI.parse(%URI{})</code> is then a no-op and the regex path is never hit.
       </del>
       <p>Solved by stubbing out the :re module</p>
+    </div>
+
+    <%!-- Gzip note --%>
+    <div :if={@active_demo.id == :gzip} class="mt-4 rounded-lg bg-info/10 border border-info/30 px-4 py-3 text-xs text-base-content/70 space-y-1">
+      <p class="font-semibold text-base-content/80">Browser decompression is transparent</p>
+      <p>
+        The browser's <code class="font-mono">fetch()</code> API decompresses gzip/br responses and strips
+        <code class="font-mono">content-encoding</code> before exposing the body — so AtomVM sees plain text
+        and Req needs no special handling. The same <code class="font-mono">WasmFetchAdapter</code> works.
+      </p>
     </div>
 
     <%!-- Error --%>

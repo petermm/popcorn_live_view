@@ -32,6 +32,9 @@ self.addEventListener("fetch", function (event) {
           headers,
         });
       })
-      .catch((e) => console.error(e))
+      .catch((e) => {
+        console.error("COI service worker fetch failed:", e);
+        return new Response(e.toString(), { status: 502, statusText: "Bad Gateway" });
+      })
   );
 });
