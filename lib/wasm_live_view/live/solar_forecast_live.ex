@@ -378,7 +378,7 @@ defmodule WasmLiveView.SolarForecastLive do
             <!-- Direction -->
             <div class="form-control w-full mt-2">
               <div class="flex justify-between items-center mb-1">
-                <span class="label-text text-sm">Direction (Azimuth)</span>
+                <span class="label-text text-sm">Direction (Azimuth) 0 is south</span>
                 <span class="badge badge-neutral font-mono text-xs">{@direction}°</span>
               </div>
               <input
