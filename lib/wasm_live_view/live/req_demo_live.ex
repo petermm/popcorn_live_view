@@ -3,62 +3,85 @@ defmodule WasmLiveView.ReqDemoLive do
 
   import WasmLiveViewWeb.CoreComponents
 
+  @adapter &WasmLiveView.WasmFetchAdapter.run/1
+
   @demos [
     %{
       id: :uuid,
       label: "UUID",
-      desc: "Generate a random UUID",
+      desc: "Basic GET — resp.body is automatically decoded to an Elixir map via decode_body: true",
       url: "https://httpbin.org/uuid",
       method: :get,
-      body: nil
+      body: nil,
+      params: nil,
+      extra_headers: nil,
+      snippet: "Req.get!(uri, adapter: adapter)"
     },
     %{
-      id: :json,
-      label: "Sample JSON",
-      desc: "Fetch a canned JSON object",
-      url: "https://httpbin.org/json",
+      id: :params,
+      label: "Query Params",
+      desc: "Use params: to attach query params — Req builds and appends the query string",
+      url: "https://httpbin.org/get",
       method: :get,
-      body: nil
+      body: nil,
+      params: %{"hello" => "atomvm", "runtime" => "wasm"},
+      extra_headers: nil,
+      snippet: ~S|Req.get!(uri, params: %{hello: "atomvm", runtime: "wasm"})|
     },
     %{
       id: :headers,
-      label: "Headers",
-      desc: "Echo back the request headers as seen by the server",
+      label: "Custom Headers",
+      desc: "Send extra request headers and see them echoed back by the server",
       url: "https://httpbin.org/headers",
       method: :get,
-      body: nil
+      body: nil,
+      params: nil,
+      extra_headers: [{"x-powered-by", "AtomVM"}, {"x-runtime", "wasm"}],
+      snippet: ~S|Req.get!(uri, headers: [{"x-powered-by", "AtomVM"}])|
     },
     %{
       id: :ip,
       label: "My IP",
-      desc: "Return the caller's public IP address",
+      desc: "Minimal JSON response — just the caller's public IP address",
       url: "https://httpbin.org/ip",
       method: :get,
-      body: nil
+      body: nil,
+      params: nil,
+      extra_headers: nil,
+      snippet: "Req.get!(uri)"
     },
     %{
       id: :teapot,
       label: "418 Teapot",
-      desc: "HTTP 418 — I'm a teapot",
+      desc: "Non-2xx status — body stays as binary, no JSON decode attempted",
       url: "https://httpbin.org/status/418",
       method: :get,
-      body: nil
+      body: nil,
+      params: nil,
+      extra_headers: nil,
+      snippet: "resp.status == 418, resp.body is binary"
     },
     %{
       id: :post,
       label: "POST JSON",
-      desc: "POST a JSON body and see it echoed back by httpbin",
+      desc: "POST with JSON — use json: to let Req encode the body and set content-type",
       url: "https://httpbin.org/post",
       method: :post,
-      body: ~s({"hello": "from AtomVM", "runtime": "WASM", "library": "Req"})
+      body: %{"hello" => "from AtomVM", "runtime" => "wasm", "library" => "Req"},
+      params: nil,
+      extra_headers: nil,
+      snippet: ~S|Req.post!(uri, json: %{hello: "from AtomVM"})|
     },
     %{
       id: :custom,
-      label: "Custom URL",
+      label: "Custom",
       desc: "Enter your own GET endpoint",
       url: nil,
       method: :get,
-      body: nil
+      body: nil,
+      params: nil,
+      extra_headers: nil,
+      snippet: nil
     }
   ]
 
@@ -90,8 +113,6 @@ defmodule WasmLiveView.ReqDemoLive do
         do: Map.get(params, "url", "https://httpbin.org/get"),
         else: demo.url
 
-    method = demo.method
-    body = demo.body
     lv = self()
     t0 = :erlang.monotonic_time(:millisecond)
 
@@ -99,39 +120,64 @@ defmodule WasmLiveView.ReqDemoLive do
       result =
         try do
           # URI.new!/1 uses :uri_string.parse (available in AtomVM) rather than
-          # :re (unavailable in WASM). Passing a %URI{} to Req.get!/post! makes
-          # Req call URI.parse(%URI{}) which is a no-op, bypassing regex entirely.
+          # :re (unavailable in WASM). Passing a %URI{} to Req bypasses the
+          # regex-based URL normalisation — URI.parse(%URI{}) is a no-op.
           uri = URI.new!(url)
 
-          req_opts = [adapter: &WasmLiveView.WasmFetchAdapter.run/1, decode_body: false]
+          # decode_body: true is the default — Req checks content-type via the MIME
+          # package and calls Jason to decode JSON responses automatically.
+          req_opts = [adapter: @adapter]
 
+          # params: — Req appends these as a query string via URI.encode_query/1
           req_opts =
-            if body,
-              do: req_opts ++ [body: body, headers: [{"content-type", "application/json"}]],
+            if demo.params,
+              do: req_opts ++ [params: demo.params],
+              else: req_opts
+
+          # headers: — extra request headers
+          req_opts =
+            if demo.extra_headers,
+              do: req_opts ++ [headers: demo.extra_headers],
               else: req_opts
 
           resp =
-            case method do
-              :post -> Req.post!(uri, req_opts)
-              _ -> Req.get!(uri, req_opts)
+            case demo.method do
+              :post ->
+                # Idiomatic Req would use json: %{...} to encode + set content-type.
+                # We encode to a binary string here for WASM adapter compatibility.
+                Req.post!(uri, req_opts ++ [body: Jason.encode!(demo.body), headers: [{"content-type", "application/json"}]])
+
+              _ ->
+                Req.get!(uri, req_opts)
             end
 
           elapsed = :erlang.monotonic_time(:millisecond) - t0
 
-          # Try JSON-decoding so we can tag the response as JSON.
-          parsed =
-            try do
-              {:ok, Jason.decode!(resp.body)}
-            catch
-              _, _ -> :raw
+          # resp.body is an Elixir map/list for JSON responses (Req decoded it),
+          # or a binary for non-JSON. Re-encode to a pretty string for display.
+          {body_text, decoded} =
+            case resp.body do
+              b when is_binary(b) ->
+                {b, false}
+
+              b ->
+                text =
+                  try do
+                    Jason.encode!(b, pretty: true)
+                  catch
+                    _, _ -> inspect(b)
+                  end
+
+                {text, true}
             end
 
           {:ok,
            %{
              status: resp.status,
              headers: resp.headers,
-             body: resp.body,
-             parsed: parsed,
+             body_text: body_text,
+             body_size: byte_size(body_text),
+             decoded: decoded,
              elapsed_ms: elapsed
            }}
         catch
@@ -192,12 +238,33 @@ defmodule WasmLiveView.ReqDemoLive do
           {String.upcase(to_string(@active_demo.method))}
         </span>
         <span class="break-all">{@active_demo.url}</span>
+        <span :if={@active_demo.params} class="ml-auto text-base-content/40">
+          +{map_size(@active_demo.params)} params
+        </span>
+      </div>
+
+      <%!-- Code snippet --%>
+      <div :if={@active_demo.snippet} class="font-mono text-xs bg-base-300/50 rounded-lg px-3 py-2 text-base-content/60">
+        <span class="text-base-content/30 select-none"># </span>{@active_demo.snippet}
+      </div>
+
+      <%!-- Extra headers preview --%>
+      <div :if={@active_demo.extra_headers}>
+        <div class="text-xs text-base-content/50 mb-1">Extra request headers</div>
+        <table class="table table-xs font-mono">
+          <tbody>
+            <tr :for={{k, v} <- @active_demo.extra_headers}>
+              <td class="text-base-content/50 pr-4">{k}</td>
+              <td>{v}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <%!-- POST body preview --%>
       <div :if={@active_demo.body}>
-        <div class="text-xs text-base-content/50 mb-1">Request body</div>
-        <pre class="bg-base-200 rounded-lg px-3 py-2 text-xs font-mono">{@active_demo.body}</pre>
+        <div class="text-xs text-base-content/50 mb-1">Request body (json:)</div>
+        <pre class="bg-base-200 rounded-lg px-3 py-2 text-xs font-mono">{Jason.encode!(@active_demo.body, pretty: true)}</pre>
       </div>
 
       <%!-- Custom URL form --%>
@@ -225,16 +292,14 @@ defmodule WasmLiveView.ReqDemoLive do
       </div>
     </div>
 
-    <%!-- AtomVM / URI.new! note --%>
+    <%!-- AtomVM constraint note --%>
     <div class="mt-4 rounded-lg bg-base-200 border border-base-300 px-4 py-3 text-xs text-base-content/70 space-y-1">
       <p class="font-semibold text-base-content/80">AtomVM constraint — no <code class="font-mono">:re</code> module</p>
       <p>
-        Req normally calls <code class="font-mono">URI.parse/1</code> on a URL string,
-        which uses <code class="font-mono">:re</code> internally — unavailable in WASM.
-        Instead we build a <code class="font-mono">%URI{}</code> struct via
-        <code class="font-mono">URI.new!/1</code> (backed by <code class="font-mono">:uri_string.parse/1</code>)
-        and pass the struct to Req. Req then calls <code class="font-mono">URI.parse(%URI{})</code>,
-        which is a no-op, and the regex path is never hit.
+        Req calls <code class="font-mono">URI.parse/1</code> on URL strings, which uses <code class="font-mono">:re</code> internally — unavailable in WASM.
+        Instead we build a <code class="font-mono">%URI{}</code> via <code class="font-mono">URI.new!/1</code>
+        (backed by <code class="font-mono">:uri_string.parse/1</code>) and pass the struct.
+        <code class="font-mono">URI.parse(%URI{})</code> is then a no-op and the regex path is never hit.
       </p>
     </div>
 
@@ -252,13 +317,13 @@ defmodule WasmLiveView.ReqDemoLive do
         </span>
         <span class="text-sm text-base-content/60">{@result.elapsed_ms} ms</span>
         <div class="ml-auto flex items-center gap-2">
-          <span
-            :if={match?({:ok, _}, @result.parsed)}
-            class="badge badge-outline badge-sm font-mono"
-          >
-            JSON
+          <span :if={@result.decoded} class="badge badge-success badge-outline badge-sm font-mono">
+            decoded
           </span>
-          <span class="text-xs text-base-content/40">{byte_size(@result.body)} B</span>
+          <span :if={not @result.decoded} class="badge badge-ghost badge-sm font-mono">
+            binary
+          </span>
+          <span class="text-xs text-base-content/40">{@result.body_size} B</span>
         </div>
       </div>
 
@@ -282,8 +347,13 @@ defmodule WasmLiveView.ReqDemoLive do
 
       <%!-- Response body --%>
       <div>
-        <div class="text-xs text-base-content/50 mb-2">Response Body</div>
-        <pre class="bg-base-200 rounded-lg p-4 text-sm overflow-auto max-h-96 font-mono leading-relaxed">{@result.body}</pre>
+        <div class="text-xs text-base-content/50 mb-2">
+          Response Body
+          <span :if={@result.decoded} class="ml-1 text-base-content/30">
+            (Jason-decoded + pretty-printed for display)
+          </span>
+        </div>
+        <pre class="bg-base-200 rounded-lg p-4 text-sm overflow-auto max-h-96 font-mono leading-relaxed">{@result.body_text}</pre>
       </div>
     </div>
     """

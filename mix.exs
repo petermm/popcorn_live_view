@@ -77,7 +77,7 @@ defmodule WasmLiveView.MixProject do
 
     # 2. Collect beams from runtime: false deps, excluding those overridden by stubs
     dep_beams =
-      ~w[phoenix phoenix_live_view phoenix_html phoenix_template phoenix_ecto ecto plug req atomvm_packbeam]
+      ~w[phoenix phoenix_live_view phoenix_html phoenix_template phoenix_ecto ecto plug req mime atomvm_packbeam]
       |> Enum.flat_map(fn dep ->
         Path.wildcard(Path.join([Mix.Project.build_path(), "lib", dep, "ebin", "*.beam"]))
       end)
