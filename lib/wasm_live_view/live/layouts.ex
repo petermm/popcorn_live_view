@@ -52,6 +52,10 @@ defmodule WasmLiveView.Layouts do
               </.link>
             </li>
           </ul>
+          <div class="divider my-4"></div>
+          <a href="https://github.com/petermm/popcorn_live_view/" target="_blank" rel="noopener noreferrer" class="link link-primary text-sm">
+            GitHub source
+          </a>
         </nav>
       </div>
     </div>
