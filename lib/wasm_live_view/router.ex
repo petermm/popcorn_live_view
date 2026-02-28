@@ -14,6 +14,7 @@ defmodule WasmLiveView.Router do
     live "/packbeam", WasmLiveView.PackbeamLive, :index
     live "/debug-pack", WasmLiveView.DebugPackLive, :index
     live "/weather", WasmLiveView.WeatherLive, :index
+    live "/solar-forecast", WasmLiveView.SolarForecastLive, :index
     live "/regex-tester", WasmLiveView.RegexTesterLive, :index
   end
 end

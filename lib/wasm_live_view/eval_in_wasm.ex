@@ -1,4 +1,5 @@
 defmodule WasmLiveView.EvalInWasm do
+  # @compile {:no_warn_undefined, [:packbeam_api.create_from_binaries/2]}
   use GenServer
 
   @process_name :eval_server
@@ -146,7 +147,10 @@ defmodule WasmLiveView.EvalInWasm do
     case :packbeam_api.create_from_binaries(inputs) do
       {:ok, avm} ->
         n = count_avm_elements(avm)
-        if n == 3, do: {:ok, "3 modules, #{byte_size(avm)}B"}, else: {:error, "expected 3, got #{n}"}
+
+        if n == 3,
+          do: {:ok, "3 modules, #{byte_size(avm)}B"},
+          else: {:error, "expected 3, got #{n}"}
 
       {:error, r} ->
         {:error, inspect(r)}
@@ -154,13 +158,18 @@ defmodule WasmLiveView.EvalInWasm do
   end
 
   defp do_api_test(:io_format_regression) do
-    src = "-module(hello_world).\n-export([start/0]).\nstart() -> io:format(\"Hello world!~n\").\n"
+    src =
+      "-module(hello_world).\n-export([start/0]).\nstart() -> io:format(\"Hello world!~n\").\n"
+
     inputs = do_compile_erlang(src)
 
     case :packbeam_api.create_from_binaries(inputs) do
       {:ok, avm} ->
         n = count_avm_elements(avm)
-        if n == 1, do: {:ok, "1 module, #{byte_size(avm)}B"}, else: {:error, "expected 1, got #{n}"}
+
+        if n == 1,
+          do: {:ok, "1 module, #{byte_size(avm)}B"},
+          else: {:error, "expected 1, got #{n}"}
 
       {:error, r} ->
         {:error, inspect(r)}
@@ -221,7 +230,9 @@ defmodule WasmLiveView.EvalInWasm do
 
         if Enum.member?(names, "d.beam"),
           do: {:error, "d.beam not pruned — modules: #{inspect(names)}"},
-          else: {:ok, "d dropped, #{length(names)} kept: #{Enum.join(names, ", ")}, #{byte_size(avm)}B"}
+          else:
+            {:ok,
+             "d dropped, #{length(names)} kept: #{Enum.join(names, ", ")}, #{byte_size(avm)}B"}
 
       {:error, r} ->
         {:error, inspect(r)}
