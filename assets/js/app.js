@@ -158,6 +158,10 @@ Hooks.IexTerminal = {
       this.pushEvent("send-input", { data });
     });
 
+    // Tell the server the terminal is ready — it starts IexShell only now,
+    // so the initial prompt arrives after handleEvent("tty-data") is wired up.
+    this.pushEvent("terminal-ready", {});
+
     // Write terminal output received from the LiveView.
     // Data is base64-encoded to survive JSON transport of raw binary bytes.
     // ghostty-web has a WASM allocator bug where large single writes cause
