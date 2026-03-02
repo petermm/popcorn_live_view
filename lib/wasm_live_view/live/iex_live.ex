@@ -29,7 +29,7 @@ defmodule WasmLiveView.IexLive do
 
   @impl true
   def handle_info({:tty_data, data}, socket) do
-    {:noreply, push_event(socket, "tty-data", %{data: data})}
+    {:noreply, push_event(socket, "tty-data", %{data: Base.encode64(data)})}
   end
 
   @impl true

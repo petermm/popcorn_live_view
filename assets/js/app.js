@@ -126,33 +126,21 @@ Hooks.Geolocation = {
   },
 };
 
-// CDN asset loaders (used by IexTerminal hook)
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
-    const s = document.createElement("script");
-    s.src = src;
-    s.onload = resolve;
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
-}
+// IexTerminal hook: renders a ghostty-web terminal and bridges tty_data push_events.
+// ghostty-web is a drop-in xterm.js replacement backed by Ghostty's VT parser (WASM).
+// The ES module auto-resolves its ghostty-vt.wasm via import.meta.url from jsDelivr.
+const GHOSTTY_CDN = "https://cdn.jsdelivr.net/npm/ghostty-web@0.4.0/dist/ghostty-web.js";
+let ghosttyModule = null;
 
-function loadStyle(href) {
-  if (document.querySelector(`link[href="${href}"]`)) return;
-  const l = document.createElement("link");
-  l.rel = "stylesheet";
-  l.href = href;
-  document.head.appendChild(l);
-}
-
-// IexTerminal hook: renders an xterm.js terminal and bridges tty_data push_events
 Hooks.IexTerminal = {
   async mounted() {
-    loadStyle("https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css");
-    await loadScript("https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js");
+    if (!ghosttyModule) {
+      ghosttyModule = await import(/* @vite-ignore */ GHOSTTY_CDN);
+      await ghosttyModule.init();
+    }
+    const { Terminal } = ghosttyModule;
 
-    const term = new window.Terminal({
+    const term = new Terminal({
       cursorBlink: true,
       scrollback: 5000,
       theme: {
@@ -165,14 +153,23 @@ Hooks.IexTerminal = {
     term.open(this.el);
     this.term = term;
 
-    // Forward key presses to the LiveView
-    term.onKey(({ key }) => {
-      this.pushEvent("send-input", { data: key });
+    // onData fires for all input: keystrokes, paste, composed characters, etc.
+    term.onData((data) => {
+      this.pushEvent("send-input", { data });
     });
 
-    // Write terminal output received from the LiveView
+    // Write terminal output received from the LiveView.
+    // Data is base64-encoded to survive JSON transport of raw binary bytes.
+    // ghostty-web has a WASM allocator bug where large single writes cause
+    // "offset is out of bounds" after memory has grown. Chunking avoids it.
     this.handleEvent("tty-data", ({ data }) => {
-      term.write(data);
+      const text = new TextDecoder().decode(
+        Uint8Array.from(atob(data), (c) => c.charCodeAt(0))
+      );
+      const CHUNK = 512;
+      for (let i = 0; i < text.length; i += CHUNK) {
+        term.write(text.slice(i, i + CHUNK));
+      }
     });
   },
   destroyed() {
