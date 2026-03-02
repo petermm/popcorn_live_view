@@ -23,6 +23,11 @@ defmodule WasmLiveView.IexLive do
   end
 
   @impl true
+  def handle_event("clear-history", _params, socket) do
+    {:noreply, push_event(socket, "clear-history", %{})}
+  end
+
+  @impl true
   def handle_event("send-input", %{"data" => data}, socket) do
     if pid = socket.assigns.shell_pid do
       WasmLiveView.IexShell.send_input(pid, data)
@@ -50,9 +55,30 @@ defmodule WasmLiveView.IexLive do
     <div
       id="iex-terminal"
       phx-hook="IexTerminal"
+      phx-update="ignore"
       class="w-full rounded-lg overflow-hidden border border-base-300"
       style="height: 500px; background: #1e1e1e;"
     >
+    </div>
+
+    <div class="mt-2 flex justify-end">
+      <button phx-click="clear-history" class="btn btn-xs btn-ghost text-base-content/50">
+        Clear history
+      </button>
+    </div>
+
+    <div class="mt-1 text-sm text-base-content/60 space-y-1">
+      <p>
+        Runs on <strong>AtomVM</strong> — a lightweight BEAM implementation.
+        Most basic Elixir expressions work. HTTP via <code>Req</code> is
+        available — <code>WasmFetchAdapter</code> is set as the default adapter
+        at startup, so <code>Req.get!("https://…")</code> works directly.
+      </p>
+      <p>
+        Arrow-up/down history is implemented in the JS hook (AtomVM's
+        <code>edlin</code> doesn't handle escape sequences). Up to 200 entries,
+        persisted in <code>localStorage</code>.
+      </p>
     </div>
     """
   end

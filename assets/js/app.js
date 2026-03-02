@@ -150,12 +150,61 @@ Hooks.IexTerminal = {
       },
     });
 
+    // Clear any residual DOM nodes from a previous session before mounting.
+    this.el.innerHTML = "";
     term.open(this.el);
     this.term = term;
 
+    // History — AtomVM's edlin doesn't handle arrow-key history.
+    // Persisted in localStorage so it survives page refreshes.
+    this.histIdx = -1;      // -1 = not navigating
+    this.curInput = "";     // chars typed since last Enter
+    this.savedInput = "";   // stashed when history nav starts
+    try {
+      this.history = JSON.parse(localStorage.getItem("iex_history") || "[]");
+    } catch {
+      this.history = [];
+    }
+
     // onData fires for all input: keystrokes, paste, composed characters, etc.
     term.onData((data) => {
+      // Arrow up: \x1b[A (normal cursor mode) or \x1bOA (application cursor mode).
+      // IEx may switch the terminal to application mode during init.
+      if (data === "\x1b[A" || data === "\x1bOA") {
+        this._histBack();
+        return;
+      }
+      // Arrow down: same dual-sequence reasoning.
+      if (data === "\x1b[B" || data === "\x1bOB") {
+        this._histForward();
+        return;
+      }
+
+      if (data === "\r") {
+        const cmd = this.curInput.trim();
+        if (cmd && this.history[this.history.length - 1] !== cmd) {
+          this.history.push(cmd);
+          if (this.history.length > 200) this.history.shift();
+          localStorage.setItem("iex_history", JSON.stringify(this.history));
+        }
+        this.curInput = "";
+        this.histIdx = -1;
+        this.savedInput = "";
+      } else if (data === "\x7f" || data === "\b") {
+        if (this.curInput.length > 0) this.curInput = this.curInput.slice(0, -1);
+      } else if (!data.startsWith("\x1b")) {
+        this.curInput += data;
+      }
+
       this.pushEvent("send-input", { data });
+    });
+
+    // Clear in-memory and persisted history on demand.
+    this.handleEvent("clear-history", () => {
+      this.history = [];
+      this.histIdx = -1;
+      this.savedInput = "";
+      localStorage.removeItem("iex_history");
     });
 
     // Tell the server the terminal is ready — it starts IexShell only now,
@@ -176,6 +225,43 @@ Hooks.IexTerminal = {
       }
     });
   },
+
+  // Replace the current IEx input line with newCmd.
+  // Send exactly curInput.length backspaces — IEx erases only the typed input
+  // (not the prompt) and echoes the deletion back to the terminal.
+  // Never write to this.term directly; IEx owns the prompt display.
+  _replaceInput(newCmd) {
+    const bsp = "\x7f".repeat(this.curInput.length);
+    this.curInput = newCmd;
+    this.pushEvent("send-input", { data: bsp + newCmd });
+  },
+
+  _histBack() {
+    if (this.history.length === 0) return;
+    if (this.histIdx === -1) {
+      this.savedInput = this.curInput;
+      this.histIdx = this.history.length - 1;
+    } else if (this.histIdx > 0) {
+      this.histIdx--;
+    } else {
+      return;  // already at oldest entry
+    }
+    this._replaceInput(this.history[this.histIdx]);
+  },
+
+  _histForward() {
+    if (this.histIdx === -1) return;
+    if (this.histIdx < this.history.length - 1) {
+      this.histIdx++;
+      this._replaceInput(this.history[this.histIdx]);
+    } else {
+      // Past the newest entry → restore what the user was typing
+      this.histIdx = -1;
+      this._replaceInput(this.savedInput);
+      this.savedInput = "";
+    }
+  },
+
   destroyed() {
     if (this.term) {
       this.term.dispose();
