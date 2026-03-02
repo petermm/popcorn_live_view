@@ -2,18 +2,22 @@ defmodule WasmLiveView.IexShell do
   @moduledoc """
   GenServer that manages an ExTTY IEx shell session for a LiveView process.
 
-  Started per-session from IexLive.mount/3. Forwards terminal output
-  to the LiveView process as {:tty_data, data} messages, which the
-  LiveView then push_event's to the JS IexTerminal hook.
+  Registered under the fixed name :iex_shell so it survives LiveView
+  navigation. When the LiveView remounts, it calls reconnect/1 to attach
+  the new LiveView pid so tty output is forwarded correctly.
   """
   use GenServer
 
-  def start_link(opts) do
-    GenServer.start_link(__MODULE__, opts)
+  def start(opts) do
+    GenServer.start(__MODULE__, opts, name: :iex_shell)
   end
 
   def send_input(pid, text) do
     GenServer.cast(pid, {:send_input, text})
+  end
+
+  def reconnect(lv_pid) do
+    GenServer.call(:iex_shell, {:set_lv_pid, lv_pid})
   end
 
   @impl true
@@ -31,6 +35,11 @@ defmodule WasmLiveView.IexShell do
       )
 
     {:ok, %{lv_pid: lv_pid, tty_name: tty_name, type: type}}
+  end
+
+  @impl true
+  def handle_call({:set_lv_pid, lv_pid}, _from, state) do
+    {:reply, :ok, %{state | lv_pid: lv_pid}}
   end
 
   @impl true

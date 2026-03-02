@@ -8,15 +8,20 @@ defmodule WasmLiveView.IexLive do
     {:ok, assign(socket, current_route: :iex, shell_pid: nil)}
   end
 
-  # JS hook fires this once ghostty-web is loaded and the terminal is open,
-  # so the initial IEx prompt arrives after the terminal is ready to display it.
+  # JS hook fires this once the terminal is ready to display output.
+  # Reuses the existing IexShell across navigations (terminal state is preserved
+  # by the JS hook); only starts a fresh shell on first visit.
+  @impl true
   def handle_event("terminal-ready", _params, socket) do
     socket =
-      if socket.assigns.shell_pid == nil do
-        {:ok, shell_pid} = WasmLiveView.IexShell.start_link(lv_pid: self())
-        assign(socket, shell_pid: shell_pid)
-      else
-        socket
+      case Process.whereis(:iex_shell) do
+        nil ->
+          {:ok, shell_pid} = WasmLiveView.IexShell.start(lv_pid: self())
+          assign(socket, shell_pid: shell_pid)
+
+        shell_pid ->
+          :ok = WasmLiveView.IexShell.reconnect(self())
+          assign(socket, shell_pid: shell_pid)
       end
 
     {:noreply, socket}

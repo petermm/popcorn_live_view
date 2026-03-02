@@ -132,6 +132,12 @@ Hooks.Geolocation = {
 const GHOSTTY_CDN = "https://cdn.jsdelivr.net/npm/ghostty-web@0.4.0/dist/ghostty-web.js";
 let ghosttyModule = null;
 
+// Singleton terminal state — persisted across LiveView mount/destroy cycles so
+// navigating away and back keeps the terminal exactly as the user left it.
+let iexTerm = null;         // ghostty Terminal instance (never disposed)
+let iexTermEl = null;       // wrapper div that holds the terminal's DOM
+let iexDataDisposable = null; // current onData listener (replaced on each mount)
+
 Hooks.IexTerminal = {
   async mounted() {
     if (!ghosttyModule) {
@@ -140,20 +146,27 @@ Hooks.IexTerminal = {
     }
     const { Terminal } = ghosttyModule;
 
-    const term = new Terminal({
-      cursorBlink: true,
-      scrollback: 5000,
-      theme: {
-        background: "#1e1e1e",
-        foreground: "#d4d4d4",
-        cursor: "#d4d4d4",
-      },
-    });
+    if (!iexTerm) {
+      // First mount: create the terminal and a persistent wrapper div.
+      iexTermEl = document.createElement("div");
+      iexTermEl.style.cssText = "width:100%;height:100%;";
+      iexTerm = new Terminal({
+        cursorBlink: true,
+        scrollback: 5000,
+        theme: {
+          background: "#1e1e1e",
+          foreground: "#d4d4d4",
+          cursor: "#d4d4d4",
+        },
+      });
+      iexTerm.open(iexTermEl);
+    }
 
-    // Clear any residual DOM nodes from a previous session before mounting.
+    // Move terminal into the hook element (was parked on body while away).
     this.el.innerHTML = "";
-    term.open(this.el);
-    this.term = term;
+    iexTermEl.style.display = "";
+    this.el.appendChild(iexTermEl);
+    this.term = iexTerm;
 
     // History — AtomVM's edlin doesn't handle arrow-key history.
     // Persisted in localStorage so it survives page refreshes.
@@ -166,8 +179,9 @@ Hooks.IexTerminal = {
       this.history = [];
     }
 
-    // onData fires for all input: keystrokes, paste, composed characters, etc.
-    term.onData((data) => {
+    // Replace the previous onData listener so pushEvent targets this socket.
+    if (iexDataDisposable) iexDataDisposable.dispose();
+    iexDataDisposable = iexTerm.onData((data) => {
       // Arrow up: \x1b[A (normal cursor mode) or \x1bOA (application cursor mode).
       // IEx may switch the terminal to application mode during init.
       if (data === "\x1b[A" || data === "\x1bOA") {
@@ -207,23 +221,24 @@ Hooks.IexTerminal = {
       localStorage.removeItem("iex_history");
     });
 
-    // Tell the server the terminal is ready — it starts IexShell only now,
-    // so the initial prompt arrives after handleEvent("tty-data") is wired up.
+    // Tell the server the terminal is ready — it starts or reconnects IexShell.
     this.pushEvent("terminal-ready", {});
 
-    // Write terminal output received from the LiveView.
-    // Data is base64-encoded to survive JSON transport of raw binary bytes.
+    // Decode base64 tty bytes and write to the terminal in chunks.
     // ghostty-web has a WASM allocator bug where large single writes cause
     // "offset is out of bounds" after memory has grown. Chunking avoids it.
-    this.handleEvent("tty-data", ({ data }) => {
+    const writeTty = (data) => {
       const text = new TextDecoder().decode(
         Uint8Array.from(atob(data), (c) => c.charCodeAt(0))
       );
       const CHUNK = 512;
       for (let i = 0; i < text.length; i += CHUNK) {
-        term.write(text.slice(i, i + CHUNK));
+        iexTerm.write(text.slice(i, i + CHUNK));
       }
-    });
+    };
+
+    // Live terminal output from the server.
+    this.handleEvent("tty-data", ({ data }) => writeTty(data));
   },
 
   // Replace the current IEx input line with newCmd.
@@ -263,9 +278,15 @@ Hooks.IexTerminal = {
   },
 
   destroyed() {
-    if (this.term) {
-      this.term.dispose();
-      this.term = null;
+    // Park the terminal on body (hidden) instead of disposing it.
+    // The next mount will move it back — preserving all terminal state.
+    if (iexTermEl) {
+      iexTermEl.style.display = "none";
+      document.body.appendChild(iexTermEl);
+    }
+    if (iexDataDisposable) {
+      iexDataDisposable.dispose();
+      iexDataDisposable = null;
     }
   },
 };
