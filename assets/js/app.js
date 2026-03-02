@@ -126,6 +126,63 @@ Hooks.Geolocation = {
   },
 };
 
+// CDN asset loaders (used by IexTerminal hook)
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+function loadStyle(href) {
+  if (document.querySelector(`link[href="${href}"]`)) return;
+  const l = document.createElement("link");
+  l.rel = "stylesheet";
+  l.href = href;
+  document.head.appendChild(l);
+}
+
+// IexTerminal hook: renders an xterm.js terminal and bridges tty_data push_events
+Hooks.IexTerminal = {
+  async mounted() {
+    loadStyle("https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css");
+    await loadScript("https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js");
+
+    const term = new window.Terminal({
+      cursorBlink: true,
+      scrollback: 5000,
+      theme: {
+        background: "#1e1e1e",
+        foreground: "#d4d4d4",
+        cursor: "#d4d4d4",
+      },
+    });
+
+    term.open(this.el);
+    this.term = term;
+
+    // Forward key presses to the LiveView
+    term.onKey(({ key }) => {
+      this.pushEvent("send-input", { data: key });
+    });
+
+    // Write terminal output received from the LiveView
+    this.handleEvent("tty-data", ({ data }) => {
+      term.write(data);
+    });
+  },
+  destroyed() {
+    if (this.term) {
+      this.term.dispose();
+      this.term = null;
+    }
+  },
+};
+
 // OPFS helpers: load/save the entire SQLite DB binary
 async function opfsLoad() {
   try {

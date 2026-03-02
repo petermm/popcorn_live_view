@@ -2,7 +2,8 @@ import Config
 
 config :popcorn,
   out_dir: "static/wasm",
-  add_tracing: false
+  add_tracing: false,
+  extra_apps: [:iex]
 
 config :phoenix, :json_library, Jason
 

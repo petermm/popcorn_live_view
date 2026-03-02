@@ -17,5 +17,6 @@ defmodule WasmLiveView.Router do
     live "/solar-forecast", WasmLiveView.SolarForecastLive, :index
     live "/regex-tester", WasmLiveView.RegexTesterLive, :index
     live "/runtime-stats", WasmLiveView.RuntimeStatsLive, :index
+    live "/iex", WasmLiveView.IexLive, :index
   end
 end

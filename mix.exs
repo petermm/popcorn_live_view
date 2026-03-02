@@ -15,7 +15,7 @@ defmodule WasmLiveView.MixProject do
 
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :iex],
       mod: {WasmLiveView.Application, []}
     ]
   end
@@ -38,6 +38,7 @@ defmodule WasmLiveView.MixProject do
       {:plug, "~> 1.14", runtime: false},
       {:esbuild, "~> 0.10", runtime: false},
       {:tailwind, "~> 0.3", runtime: false},
+      {:extty, "~> 0.2"},
       {:jason, "~> 1.0"},
       {:heroicons,
        github: "tailwindlabs/heroicons",
@@ -78,7 +79,7 @@ defmodule WasmLiveView.MixProject do
 
     # 2. Collect beams from runtime: false deps, excluding those overridden by stubs
     dep_beams =
-      ~w[phoenix phoenix_live_view phoenix_html phoenix_template phoenix_ecto ecto plug req mime easel atomvm_packbeam]
+      ~w[phoenix phoenix_live_view phoenix_html phoenix_template phoenix_ecto ecto plug req mime easel atomvm_packbeam extty]
       |> Enum.flat_map(fn dep ->
         Path.wildcard(Path.join([Mix.Project.build_path(), "lib", dep, "ebin", "*.beam"]))
       end)
