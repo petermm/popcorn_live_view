@@ -167,6 +167,7 @@ Hooks.IexTerminal = {
     iexTermEl.style.display = "";
     this.el.appendChild(iexTermEl);
     this.term = iexTerm;
+    iexTerm.focus();
 
     // History — AtomVM's edlin doesn't handle arrow-key history.
     // Persisted in localStorage so it survives page refreshes.
