@@ -26,8 +26,9 @@
     // controls this page, otherwise fetches escape without the required headers.
     (function () {
       if (!("serviceWorker" in navigator)) return loadApp();
+      var swVersion = "20260302-1";
 
-      navigator.serviceWorker.register("coi-serviceworker.js").then(function (reg) {
+      navigator.serviceWorker.register("coi-serviceworker.js?v=" + swVersion).then(function (reg) {
         // Already controlling this page — safe to load
         if (navigator.serviceWorker.controller) return loadApp();
 
