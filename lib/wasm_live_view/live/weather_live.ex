@@ -2,6 +2,8 @@ defmodule WasmLiveView.WeatherLive do
   use Phoenix.LiveView, layout: {WasmLiveView.Layouts, :app}
 
   import WasmLiveViewWeb.CoreComponents
+  @cupertino_lat 37.3229
+  @cupertino_lon -122.0322
 
   @impl true
   def mount(_params, _session, socket) do
@@ -43,26 +45,35 @@ defmodule WasmLiveView.WeatherLive do
   end
 
   @impl true
+  def handle_event("get-cupertino-weather", _params, socket) do
+    {:noreply, fetch_weather(socket, @cupertino_lat, @cupertino_lon)}
+  end
+
+  @impl true
   def handle_event("location-found", %{"lat" => lat, "lon" => lon}, socket) do
-    lat_f = to_float(lat)
-    lon_f = to_float(lon)
+    {:noreply, fetch_weather(socket, to_float(lat), to_float(lon))}
+  end
+
+  defp to_float(val) when is_float(val), do: val
+  defp to_float(val) when is_binary(val), do: String.to_float(val)
+  defp to_float(val) when is_integer(val), do: val * 1.0
+
+  defp fetch_weather(socket, lat_f, lon_f) do
     location = %{lat: lat_f, lon: lon_f}
     lv = self()
 
     spawn(fn ->
       result =
         try do
-          url = "https://api.open-meteo.com/v1/forecast?latitude=#{lat_f}&longitude=#{lon_f}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
-          # uri = URI.new!(url)
+          url =
+            "https://api.open-meteo.com/v1/forecast?latitude=#{lat_f}&longitude=#{lon_f}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
+
           resp = Req.get!(url, adapter: &WasmLiveView.WasmFetchAdapter.run/1, decode_body: false)
 
-          IO.inspect(resp)
           case resp.status do
             200 ->
               data = Jason.decode!(resp.body)
-              IO.inspect(data)
               weather = parse_weather(data, lat_f, lon_f)
-              IO.inspect(weather)
               {:ok, weather}
 
             _ ->
@@ -75,12 +86,8 @@ defmodule WasmLiveView.WeatherLive do
       send(lv, {:weather_result, result, location})
     end)
 
-    {:noreply, assign(socket, location: location)}
+    assign(socket, loading: true, error: nil, weather: nil, location: location)
   end
-
-  defp to_float(val) when is_float(val), do: val
-  defp to_float(val) when is_binary(val), do: String.to_float(val)
-  defp to_float(val) when is_integer(val), do: val * 1.0
 
   def handle_event("location-error", %{"error" => error}, socket) do
     {:noreply, assign(socket, loading: false, error: "Location error: #{error}")}
@@ -96,8 +103,7 @@ defmodule WasmLiveView.WeatherLive do
   end
 
   defp parse_weather(data, lat, lon) do
-
-    #data is:
+    # data is:
     # %{"current" => %{"interval" => 900, "relative_humidity_2m" => 99, "temperature_2m" => 6.8,
     # "time" => "2026-02-27T15:00", "weather_code" => 51, "wind_speed_10m" => 14.0},
     # "current_units" => %{"interval" => "seconds", "relative_humidity_2m" => "%", "temperature_2m" => "°C", "time" => "iso8601", "weather_code" => "wmo code", "wind_speed_10m" => "km/h"},
@@ -170,6 +176,9 @@ defmodule WasmLiveView.WeatherLive do
     <div class="mt-6">
       <.button phx-click="get-location" disabled={@loading}>
         {if @loading, do: "Getting location...", else: "Get My Weather"}
+      </.button>
+      <.button phx-click="get-cupertino-weather" disabled={@loading}>
+        Get weather for Cupertino
       </.button>
       <div id="geolocation" phx-hook="Geolocation"></div>
     </div>

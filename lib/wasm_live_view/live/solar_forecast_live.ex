@@ -2,6 +2,8 @@ defmodule WasmLiveView.SolarForecastLive do
   use Phoenix.LiveView, layout: {WasmLiveView.Layouts, :app}
 
   import WasmLiveViewWeb.CoreComponents
+  @cupertino_lat 37.3229
+  @cupertino_lon -122.0322
 
   @storage_key "solar_forecast_cache"
   @settings_key "solar_forecast_settings"
@@ -57,6 +59,21 @@ defmodule WasmLiveView.SolarForecastLive do
   end
 
   @impl true
+  def handle_event("get-cupertino-forecast", _params, socket) do
+    socket =
+      assign(socket,
+        loading: true,
+        error: nil,
+        location: %{lat: @cupertino_lat, lon: @cupertino_lon},
+        solar_data: nil,
+        forecast_data: nil,
+        combined_chart_ops: []
+      )
+
+    do_fetch_or_cache(socket)
+  end
+
+  @impl true
   def handle_event("location-found", %{"lat" => lat, "lon" => lon}, socket) do
     socket = assign(socket, location: %{lat: to_float(lat), lon: to_float(lon)})
     do_fetch_or_cache(socket)
@@ -94,7 +111,12 @@ defmodule WasmLiveView.SolarForecastLive do
        loading: false,
        solar_data: data,
        forecast_data: forecast,
-       combined_chart_ops: build_combined_chart(forecast.today_period, forecast.tomorrow_period, socket.assigns.panel_size_kw * 1000),
+       combined_chart_ops:
+         build_combined_chart(
+           forecast.today_period,
+           forecast.tomorrow_period,
+           socket.assigns.panel_size_kw * 1000
+         ),
        cache: cache
      )}
   end
@@ -235,7 +257,12 @@ defmodule WasmLiveView.SolarForecastLive do
                loading: false,
                solar_data: data,
                forecast_data: forecast,
-               combined_chart_ops: build_combined_chart(forecast.today_period, forecast.tomorrow_period, socket.assigns.panel_size_kw * 1000)
+               combined_chart_ops:
+                 build_combined_chart(
+                   forecast.today_period,
+                   forecast.tomorrow_period,
+                   socket.assigns.panel_size_kw * 1000
+                 )
              )}
 
           :miss ->
@@ -267,7 +294,7 @@ defmodule WasmLiveView.SolarForecastLive do
   defp fetch_solar_forecast(lat, lon, panel_size_kw, tilt, direction) do
     try do
       # forecast.solar doesn't support CORS, use cors-anywhere proxy
-      base_url = "https://corsproxy.io/?url=https://api.forecast.solar"
+      base_url = "https://api.forecast.solar"
       url = "#{base_url}/estimate/#{lat}/#{lon}/#{tilt}/#{direction}/#{panel_size_kw}"
 
       resp =
@@ -323,7 +350,16 @@ defmodule WasmLiveView.SolarForecastLive do
     today_period = parse_period.(today)
     tomorrow_period = if tomorrow, do: parse_period.(elem(tomorrow, 0)), else: []
 
-    %{peak_w: peak_w, peak_time: peak_time, today: today, today_kwh: today_kwh, tomorrow: tomorrow, days: day_entries, today_period: today_period, tomorrow_period: tomorrow_period}
+    %{
+      peak_w: peak_w,
+      peak_time: peak_time,
+      today: today,
+      today_kwh: today_kwh,
+      tomorrow: tomorrow,
+      days: day_entries,
+      today_period: today_period,
+      tomorrow_period: tomorrow_period
+    }
   end
 
   @impl true
@@ -337,6 +373,9 @@ defmodule WasmLiveView.SolarForecastLive do
     <div class="mt-6">
       <.button phx-click="get-location" disabled={@loading}>
         {if @loading, do: "Getting forecast...", else: "Get Solar Forecast"}
+      </.button>
+      <.button phx-click="get-cupertino-forecast" disabled={@loading}>
+        Get forecast for Cupertino
       </.button>
       <div id="geolocation" phx-hook="Geolocation"></div>
     </div>
@@ -501,8 +540,10 @@ defmodule WasmLiveView.SolarForecastLive do
       cond do
         today_times == [] or tomorrow_times == [] ->
           List.first(today_times ++ tomorrow_times) || "00:00"
+
         String.slice(hd(today_times), 0, 2) == String.slice(hd(tomorrow_times), 0, 2) ->
           if hd(today_times) > hd(tomorrow_times), do: hd(today_times), else: hd(tomorrow_times)
+
         true ->
           if hd(today_times) < hd(tomorrow_times), do: hd(today_times), else: hd(tomorrow_times)
       end
@@ -511,10 +552,17 @@ defmodule WasmLiveView.SolarForecastLive do
       cond do
         today_times == [] or tomorrow_times == [] ->
           List.last(today_times ++ tomorrow_times) || "23:59"
-        String.slice(List.last(today_times), 0, 2) == String.slice(List.last(tomorrow_times), 0, 2) ->
-          if List.last(today_times) < List.last(tomorrow_times), do: List.last(today_times), else: List.last(tomorrow_times)
+
+        String.slice(List.last(today_times), 0, 2) ==
+            String.slice(List.last(tomorrow_times), 0, 2) ->
+          if List.last(today_times) < List.last(tomorrow_times),
+            do: List.last(today_times),
+            else: List.last(tomorrow_times)
+
         true ->
-          if List.last(today_times) > List.last(tomorrow_times), do: List.last(today_times), else: List.last(tomorrow_times)
+          if List.last(today_times) > List.last(tomorrow_times),
+            do: List.last(today_times),
+            else: List.last(tomorrow_times)
       end
 
     times =
