@@ -4,6 +4,10 @@ defmodule WasmLiveView.Application do
 
   @impl true
   def start(_type, _args) do
+    if function_exported?(:atomvm, :platform, 0) do
+      Req.default_options(adapter: &WasmLiveView.WasmFetchAdapter.run/1)
+    end
+
     children = [
       WasmLiveView.Notes,
       {DynamicSupervisor, name: WasmLiveView.ChannelSupervisor, strategy: :one_for_one},
