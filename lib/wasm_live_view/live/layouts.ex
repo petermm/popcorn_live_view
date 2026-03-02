@@ -19,6 +19,7 @@ defmodule WasmLiveView.Layouts do
     %{path: @script_prefix <> "/regex-tester", label: "RegexTester", key: :regex_tester},
     %{path: @script_prefix <> "/runtime-stats", label: "Runtime Stats", key: :runtime_stats},
     %{path: @script_prefix <> "/iex", label: "IEX", key: :iex},
+    %{path: @script_prefix <> "/wokwi", label: "Wokwi", key: :wokwi},
   ]
 
   defp sidebar(assigns) do
@@ -75,9 +76,9 @@ defmodule WasmLiveView.Layouts do
     assigns = assign(assigns, :nav_items, @nav_items)
 
     ~H"""
-    <div class="drawer lg:drawer-open">
+    <div class="drawer lg:drawer-open h-screen">
       <input id="nav-drawer" type="checkbox" class="drawer-toggle" />
-      <div class="drawer-content flex flex-col min-h-screen">
+      <div class="drawer-content flex flex-col h-screen min-h-0 overflow-hidden">
         <%!-- Mobile top bar --%>
         <div class="navbar bg-base-200 border-b border-base-300 lg:hidden sticky top-0 z-50">
           <label for="nav-drawer" class="btn btn-ghost btn-square drawer-button">
@@ -87,7 +88,7 @@ defmodule WasmLiveView.Layouts do
           </label>
           <span class="text-lg font-bold ml-2">LiveView WASM</span>
         </div>
-        <main class="flex-1 p-4 lg:p-6 w-full">
+        <main class="flex-1 p-4 lg:p-6 w-full min-h-0 flex flex-col">
           {@inner_content}
         </main>
       </div>

@@ -1,0 +1,28 @@
+{
+  "write_flash_args": [
+    "--flash_mode",
+    "dio",
+    "--flash_size",
+    "8MB",
+    "--flash_freq",
+    "40m"
+  ],
+  "flash_settings": {
+    "flash_mode": "dio",
+    "flash_size": "8MB",
+    "flash_freq": "40m"
+  },
+  "flash_files": {
+    "0x1000": "bootloader.bin",
+    "0x10000": "atomvm-esp32.bin",
+    "0x8000": "partition-table.bin",
+    "0x1D0000": "elixir_esp32boot.avm",
+    "0x210000": "main.avm"
+  },
+  "extra_esptool_args": {
+    "after": "hard_reset",
+    "before": "default_reset",
+    "stub": true,
+    "chip": "esp32"
+  }
+}

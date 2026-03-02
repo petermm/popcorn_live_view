@@ -18,5 +18,6 @@ defmodule WasmLiveView.Router do
     live "/regex-tester", WasmLiveView.RegexTesterLive, :index
     live "/runtime-stats", WasmLiveView.RuntimeStatsLive, :index
     live "/iex", WasmLiveView.IexLive, :index
+    live "/wokwi", WasmLiveView.WokwiLive, :index
   end
 end
