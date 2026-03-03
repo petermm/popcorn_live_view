@@ -41,6 +41,32 @@ defmodule WasmLiveView.WokwiLive do
         io:format("OFF~n~n"),
         loop(GPIO, off).
     """,
+    "button" => """
+    -module(button).
+    -export([start/0]).
+
+    start() ->
+        GPIO = gpio:open(),
+        Pin = 4,
+        gpio:set_pin_mode(Pin, input),
+        gpio:set_pin_pull(Pin, up),
+        gpio:set_direction(GPIO, Pin, input),
+        gpio:set_direction(GPIO, 2, output),
+        gpio:set_level(GPIO, 2, 0),
+        % try changing from falling to both or rising and press button
+        ok = gpio:set_int(GPIO, Pin, falling),
+        io:format("Waiting for button press on GPIO ~p...~n", [Pin]),
+        loop(GPIO, 0).
+
+    loop(GPIO, Count) ->
+        receive
+            {gpio_interrupt, 4} ->
+                NewCount = Count + 1,
+                io:format("Button pressed! Count: ~p~n", [NewCount]),
+                gpio:set_level(GPIO, 2, NewCount rem 2),
+                loop(GPIO, NewCount)
+        end.
+    """,
     "wifi" => """
     -module(wifi).
     -export([start/0]).

@@ -159,6 +159,13 @@ const wokwiDefaultDiagram = JSON.stringify({
       rotate: 90,
       attrs: { value: "1000" },
     },
+    {
+      type: "wokwi-pushbutton",
+      id: "btn1",
+      top: 60,
+      left: -90,
+      attrs: { color: "blue", label: "BTN", key: "b", bounce: "0" },
+    },
   ],
   connections: [
     ["esp:TX", "$serialMonitor:RX", "", []],
@@ -166,6 +173,8 @@ const wokwiDefaultDiagram = JSON.stringify({
     ["led1:C", "r1:1", "green", ["v0"]],
     ["esp:GND.3", "r1:2", "black", ["h33.64", "v57.6", "h19.2"]],
     ["esp:2", "led1:A", "green", ["h0"]],
+    ["btn1:1.r", "esp:4", "blue", ["h0", "v0"]],
+    ["btn1:2.r", "esp:GND.1", "black", ["h0", "v19.2"]],
   ],
   dependencies: {},
 });
