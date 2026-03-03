@@ -19,34 +19,51 @@ defmodule WasmLiveView.WokwiLive do
     }
   }
 
-  @default_code """
-  -module(blinky).
-  -export([start/0]).
+  @code_examples %{
+    "blinky" => """
+    -module(blinky).
+    -export([start/0]).
 
-  start() ->
-      GPIO = gpio:open(),
-      io:format("Hello World!\\n"),
-      gpio:set_direction(GPIO, 2, output),
-      loop(GPIO, off).
+    start() ->
+        GPIO = gpio:open(),
+        io:format("Hello World!\\n"),
+        gpio:set_direction(GPIO, 2, output),
+        loop(GPIO, off).
 
-  loop(GPIO, off) ->
-      gpio:set_level(GPIO, 2, 0),
-      timer:sleep(500),
-      io:format("ON\\n\\n"),
-      loop(GPIO, on);
-  loop(GPIO, on) ->
-      gpio:set_level(GPIO, 2, 1),
-      timer:sleep(500),
-      io:format("OFF\\n\\n"),
-      loop(GPIO, off).
-  """
+    loop(GPIO, off) ->
+        gpio:set_level(GPIO, 2, 0),
+        timer:sleep(500),
+        io:format("ON\\n\\n"),
+        loop(GPIO, on);
+    loop(GPIO, on) ->
+        gpio:set_level(GPIO, 2, 1),
+        timer:sleep(500),
+        io:format("OFF\\n\\n"),
+        loop(GPIO, off).
+    """,
+    "wifi" => """
+    -module(wifi).
+    -export([start/0]).
+
+    start() ->
+        io:format("Hello World!\\n"),
+        loop().
+
+    loop() ->
+        timer:sleep(1000),
+        io:format("WiFi example\\n"),
+        loop().
+    """
+  }
 
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      assign(socket,
        current_route: :wokwi,
-       code: @default_code,
+       current_example: "blinky",
+       code: Map.fetch!(@code_examples, "blinky"),
+       code_examples: @code_examples,
        start_module: "blinky",
        output: "",
        connected: false,
@@ -57,8 +74,13 @@ defmodule WasmLiveView.WokwiLive do
   @impl true
   def handle_event("code-changed", params, socket) do
     code = Map.get(params, "code", socket.assigns.code)
-    start_module = Map.get(params, "start_module", socket.assigns.start_module)
-    {:noreply, assign(socket, code: code, start_module: start_module)}
+    {:noreply, assign(socket, code: code)}
+  end
+
+  @impl true
+  def handle_event("select-example", %{"example" => example}, socket) do
+    code = Map.fetch!(@code_examples, example)
+    {:noreply, assign(socket, current_example: example, code: code, start_module: example)}
   end
 
   @impl true
@@ -157,18 +179,23 @@ defmodule WasmLiveView.WokwiLive do
 
       <div class="grid lg:grid-cols-2 gap-4 min-h-0">
         <%!-- Code Editor --%>
-        <div class="card bg-base-200 shadow">
-          <div class="card-body p-4">
-            <h2 class="card-title text-sm">AtomVM Erlang Code</h2>
-            <form phx-change="code-changed">
-              <input
-                type="text"
-                name="start_module"
-                value={@start_module}
-                class="input input-bordered input-sm w-full mb-2 font-mono text-xs"
-                placeholder="Start module (e.g. myapp)"
-                phx-debounce="300"
-              />
+         <div class="card bg-base-200 shadow">
+           <div class="card-body p-4">
+             <div class="flex items-center justify-between mb-4">
+               <h2 class="card-title text-sm">AtomVM Erlang Code</h2>
+               <div class="tabs tabs-boxed">
+                 <%= for example <- Map.keys(@code_examples) do %>
+                   <button
+                     phx-click="select-example"
+                     phx-value-example={example}
+                     class={["tab", if(@current_example == example, do: "tab-active")]}
+                   >
+                     {String.capitalize(example)}
+                   </button>
+                 <% end %>
+               </div>
+             </div>
+             <form phx-change="code-changed">
               <textarea
                 name="code"
                 class="textarea textarea-bordered font-mono text-xs w-full"
