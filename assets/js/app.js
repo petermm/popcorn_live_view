@@ -294,7 +294,10 @@ Hooks.WokwiEmbed = {
       client.onConnected = async () => {
         this.pushEvent("wokwi-connected", {});
         await client.serialMonitorListen();
-        await client.fileUpload("diagram.json", wokwiDefaultDiagram);
+        const serialDisplay = this.el.dataset.serialMonitor || "never";
+        const diagram = JSON.parse(wokwiDefaultDiagram);
+        diagram.serialMonitor = { display: serialDisplay };
+        await client.fileUpload("diagram.json", JSON.stringify(diagram));
       };
 
       client.listen("serial-monitor:data", (evt) => {

@@ -20,5 +20,6 @@ defmodule WasmLiveView.Router do
     live("/runtime-stats", WasmLiveView.RuntimeStatsLive, :index)
     live("/iex", WasmLiveView.IexLive, :index)
     live("/wokwi", WasmLiveView.WokwiLive, :index)
+    live("/wokwi-vertical", WasmLiveView.WokwiVerticalLive, :index)
   end
 end

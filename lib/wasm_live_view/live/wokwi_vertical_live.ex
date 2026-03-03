@@ -1,4 +1,4 @@
-defmodule WasmLiveView.WokwiLive do
+defmodule WasmLiveView.WokwiVerticalLive do
   use Phoenix.LiveView, layout: {WasmLiveView.Layouts, :terminal_app}
 
   @flasher_args %{
@@ -208,7 +208,7 @@ defmodule WasmLiveView.WokwiLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="grid gap-4 h-full min-h-0" style="grid-template-rows: auto minmax(0, 3fr) minmax(0, 2fr);">
+    <div class="grid gap-4 h-full min-h-0" style="grid-template-rows: auto minmax(0, 1fr);">
       <div class="flex items-center justify-between">
         <h1 class="text-xl font-bold">Wokwi ESP32 AtomVM</h1>
         <span class={["badge", if(@connected, do: "badge-success", else: "badge-warning")]}>
@@ -216,7 +216,7 @@ defmodule WasmLiveView.WokwiLive do
         </span>
       </div>
 
-      <div class="grid lg:grid-cols-2 gap-4 min-h-0 h-full">
+      <div class="grid gap-4 min-h-0 h-full" style="grid-template-columns: 1fr 2fr;">
         <%!-- Code Editor --%>
          <div class="card bg-base-200 shadow min-h-0 h-full">
            <div class="card-body p-4 flex flex-col min-h-0 h-full">
@@ -236,9 +236,9 @@ defmodule WasmLiveView.WokwiLive do
              </div>
              <form phx-change="code-changed" class="flex flex-col flex-1 min-h-0">
               <textarea
-                 name="code"
-                 class="textarea textarea-bordered font-mono text-xs w-full flex-1 min-h-0"
-                 style="resize: none; height: 100%;"
+                name="code"
+                class="textarea textarea-bordered font-mono text-xs w-full flex-1 min-h-0"
+                style="resize: none; height: 100%;"
                 phx-debounce="500"
               >{@code}</textarea>
             </form>
@@ -267,29 +267,14 @@ defmodule WasmLiveView.WokwiLive do
         <%!-- Wokwi Simulator --%>
         <div class="card bg-base-200 shadow min-h-0 h-full">
           <div class="card-body p-4 flex flex-col min-h-0 h-full">
+            <h2 class="card-title text-sm">ESP32 Simulation</h2>
             <div
               id="wokwi-embed"
               phx-hook="WokwiEmbed"
               phx-update="ignore"
+              data-serial-monitor="always"
               class="rounded-lg overflow-hidden flex-1 min-h-0"
             ></div>
-          </div>
-        </div>
-      </div>
-
-      <%!-- Serial Monitor --%>
-      <div class="card bg-base-200 shadow min-h-0 h-full">
-        <div class="card-body p-4 flex flex-col min-h-0">
-          <div class="flex items-center justify-between mb-2">
-            <h2 class="card-title text-sm">Serial Monitor</h2>
-            <button class="btn btn-xs btn-ghost" phx-click="clear-output">Clear</button>
-          </div>
-          <div
-            id="wokwi-serial-output"
-            phx-hook="WokwiSerialAutoScroll"
-            class="bg-base-300 rounded-lg p-3 overflow-auto font-mono text-xs flex-1 min-h-0"
-          >
-            <pre class="text-success whitespace-pre-wrap break-all">{if @output == "", do: "Waiting for simulation output...", else: @output}</pre>
           </div>
         </div>
       </div>
