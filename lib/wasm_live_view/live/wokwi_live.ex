@@ -25,16 +25,19 @@ defmodule WasmLiveView.WokwiLive do
 
   start() ->
       GPIO = gpio:open(),
+      io:format("Hello World!\\n"),
       gpio:set_direction(GPIO, 2, output),
       loop(GPIO, off).
 
   loop(GPIO, off) ->
       gpio:set_level(GPIO, 2, 0),
       timer:sleep(500),
+      io:format("ON\\n\\n"),
       loop(GPIO, on);
   loop(GPIO, on) ->
       gpio:set_level(GPIO, 2, 1),
       timer:sleep(500),
+      io:format("OFF\\n\\n"),
       loop(GPIO, off).
   """
 
