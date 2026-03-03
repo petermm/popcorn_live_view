@@ -181,14 +181,14 @@ defmodule WasmLiveView.WokwiLive do
         <%!-- Code Editor --%>
          <div class="card bg-base-200 shadow">
            <div class="card-body p-4">
-             <div class="flex items-center justify-between mb-4">
-               <h2 class="card-title text-sm">AtomVM Erlang Code</h2>
-               <div class="tabs tabs-boxed">
+             <h2 class="card-title text-sm mb-4">AtomVM Erlang Code</h2>
+             <div class="flex gap-6 items-start">
+               <div class="tabs tabs-lifted tabs-vertical gap-1">
                  <%= for example <- Map.keys(@code_examples) do %>
                    <button
                      phx-click="select-example"
                      phx-value-example={example}
-                     class={["tab", if(@current_example == example, do: "tab-active")]}
+                     class={["tab tab-lg font-semibold", if(@current_example == example, do: "tab-active bg-base-100", else: "hover:bg-base-300")]}
                    >
                      {String.capitalize(example)}
                    </button>
