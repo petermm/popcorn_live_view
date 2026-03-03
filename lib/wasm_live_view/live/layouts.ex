@@ -1,15 +1,21 @@
 defmodule WasmLiveView.Layouts do
   use Phoenix.Component
 
-  @script_prefix Enum.reduce(WasmLiveView.Endpoint.script_name(), "", fn part, acc -> acc <> "/" <> part end)
+  @script_prefix Enum.reduce(WasmLiveView.Endpoint.script_name(), "", fn part, acc ->
+                   acc <> "/" <> part
+                 end)
 
   @nav_items [
-    %{path: @script_prefix <> "/", label: "Notes", key: :home},
+    %{path: @script_prefix <> "/", label: "Wokwi", key: :home},
     %{path: @script_prefix <> "/counter", label: "Counter", key: :counter},
     %{path: @script_prefix <> "/streams", label: "Streams", key: :streams},
     %{path: @script_prefix <> "/eval", label: "Elixir eval", key: :eval},
     %{path: @script_prefix <> "/interop", label: "JS Interop", key: :interop},
-    %{path: @script_prefix <> "/notes-persisted", label: "Notes (Persisted)", key: :notes_persisted},
+    %{
+      path: @script_prefix <> "/notes-persisted",
+      label: "Notes (Persisted)",
+      key: :notes_persisted
+    },
     %{path: @script_prefix <> "/notes-sqlite", label: "Notes (SQLite)", key: :notes_sqlite},
     %{path: @script_prefix <> "/req-demo", label: "Req Demo", key: :req_demo},
     %{path: @script_prefix <> "/packbeam", label: "Packbeam", key: :packbeam},
@@ -19,7 +25,7 @@ defmodule WasmLiveView.Layouts do
     %{path: @script_prefix <> "/regex-tester", label: "RegexTester", key: :regex_tester},
     %{path: @script_prefix <> "/runtime-stats", label: "Runtime Stats", key: :runtime_stats},
     %{path: @script_prefix <> "/iex", label: "IEX", key: :iex},
-    %{path: @script_prefix <> "/wokwi", label: "Wokwi", key: :wokwi},
+    %{path: @script_prefix <> "/wokwi", label: "Wokwi", key: :wokwi}
   ]
 
   defp sidebar(assigns) do
