@@ -325,7 +325,7 @@ defmodule WasmLiveView.WokwiLive do
                 disabled={not @connected or @packing}
                 phx-click="flash"
               >
-                {if @packing, do: "Packing AVM...", else: "\u25B6 Flash & Run"}
+                {if @packing, do: "Packing AVM...", else: "\u25B6 Pack & Run"}
               </button>
             </div>
           </div>
