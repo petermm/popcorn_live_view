@@ -215,7 +215,10 @@ Hooks.WokwiEmbed = {
 
         for (const [offsetHex, sourceName] of Object.entries(flashMap)) {
           const offsetKey = offsetHex.toLowerCase();
-          if (sourceName !== "main.avm" && this.cachedFlashSections[offsetKey]) {
+          if (
+            sourceName !== "main.avm" &&
+            this.cachedFlashSections[offsetKey]
+          ) {
             flashSections.push({
               offset: parseInt(offsetHex, 16),
               file: this.cachedFlashSections[offsetKey],
@@ -239,9 +242,7 @@ Hooks.WokwiEmbed = {
             const firmwareUrl = `${BASE_PATH}/wokwi/firmware/${sourceName}`;
             const resp = await fetch(firmwareUrl);
             if (!resp.ok) {
-              throw new Error(
-                `failed to fetch ${firmwareUrl}: ${resp.status}`,
-              );
+              throw new Error(`failed to fetch ${firmwareUrl}: ${resp.status}`);
             }
             bytes = new Uint8Array(await resp.arrayBuffer());
           }
@@ -574,10 +575,36 @@ async function setupSQLite() {
     updated_at INTEGER NOT NULL
   )`);
 
+  // Some sql.js builds do not include FTS5; keep setup resilient and fall back to LIKE search.
+  let notesSearchMode = "like";
+  try {
+    db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts
+      USING fts5(title, body, content='notes', content_rowid='id')`);
+
+    db.run(`CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
+      INSERT INTO notes_fts(rowid, title, body) VALUES (new.id, new.title, coalesce(new.body, ''));
+    END`);
+
+    db.run(`CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
+      INSERT INTO notes_fts(notes_fts, rowid, title, body) VALUES ('delete', old.id, old.title, coalesce(old.body, ''));
+    END`);
+
+    db.run(`CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
+      INSERT INTO notes_fts(notes_fts, rowid, title, body) VALUES ('delete', old.id, old.title, coalesce(old.body, ''));
+      INSERT INTO notes_fts(rowid, title, body) VALUES (new.id, new.title, coalesce(new.body, ''));
+    END`);
+
+    db.run(`INSERT INTO notes_fts(notes_fts) VALUES ('rebuild')`);
+    notesSearchMode = "fts5";
+  } catch (err) {
+    console.warn("[WasmLiveView] FTS5 unavailable, using LIKE search fallback", err);
+  }
+
   window.__sqliteDB = db;
+  window.__notesSearchMode = notesSearchMode;
   // Fire-and-forget save — called by Elixir after each write via run_js
   window.__sqliteSave = () => opfsSave(db).catch(console.error);
-  console.log("[WasmLiveView] SQLite ready, persisted via OPFS");
+  console.log(`[WasmLiveView] SQLite ready, persisted via OPFS (search: ${notesSearchMode})`);
 }
 
 async function setup() {

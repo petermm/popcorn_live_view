@@ -11,6 +11,7 @@ defmodule WasmLiveView.NotesSqliteLive do
     {:ok,
      socket
      |> assign(:current_route, :notes_sqlite)
+     |> assign(:search, "")
      |> assign(:notes, notes)
      |> assign(:editing, nil)
      |> assign_form(Note.changeset(%Note{}, %{}))}
@@ -41,7 +42,13 @@ defmodule WasmLiveView.NotesSqliteLive do
 
   def handle_event("delete", %{"id" => id}, socket) do
     db_delete(String.to_integer(id))
-    {:noreply, assign(socket, :notes, db_list())}
+    {:noreply, assign(socket, :notes, db_search(socket.assigns.search, db_list()))}
+  end
+
+  def handle_event("do-search", %{"value" => value}, socket) do
+    value = String.trim(value)
+    notes = db_search(value, socket.assigns.notes)
+    {:noreply, socket |> assign(:search, value) |> assign(:notes, notes)}
   end
 
   defp create_note(socket, params) do
@@ -51,9 +58,11 @@ defmodule WasmLiveView.NotesSqliteLive do
     case Note.changeset(note, params) |> Ecto.Changeset.apply_action(:insert) do
       {:ok, new_note} ->
         db_insert(new_note)
+        notes = db_search(socket.assigns.search, db_list())
+
         {:noreply,
          socket
-         |> assign(:notes, db_list())
+         |> assign(:notes, notes)
          |> assign(:editing, nil)
          |> assign_form(Note.changeset(%Note{}, %{}))}
 
@@ -68,9 +77,11 @@ defmodule WasmLiveView.NotesSqliteLive do
     case Note.changeset(%{note | updated_at: ts}, params) |> Ecto.Changeset.apply_action(:update) do
       {:ok, updated} ->
         db_update(updated)
+        notes = db_search(socket.assigns.search, db_list())
+
         {:noreply,
          socket
-         |> assign(:notes, db_list())
+         |> assign(:notes, notes)
          |> assign(:editing, nil)
          |> assign_form(Note.changeset(%Note{}, %{}))}
 
@@ -115,6 +126,66 @@ defmodule WasmLiveView.NotesSqliteLive do
 
       _ ->
         []
+    end
+  end
+
+  defp db_search("", _default), do: db_list()
+
+  defp db_search(query, default) do
+    case Popcorn.Wasm.run_js(
+           """
+           ({ args }) => {
+             const db = window.__sqliteDB;
+             const searchMode = window.__notesSearchMode || "like";
+             let stmt;
+
+             if (searchMode === "fts5") {
+               stmt = db.prepare(
+                 `SELECT n.id, n.title, n.body, n.inserted_at, n.updated_at
+                  FROM notes n
+                  JOIN notes_fts ON notes_fts.rowid = n.id
+                  WHERE notes_fts MATCH ?
+                  ORDER BY bm25(notes_fts), n.inserted_at DESC`
+               );
+               stmt.bind([args.query]);
+             } else {
+               stmt = db.prepare(
+                 `SELECT id, title, body, inserted_at, updated_at
+                  FROM notes
+                  WHERE lower(title) LIKE lower(?)
+                     OR lower(coalesce(body, '')) LIKE lower(?)
+                  ORDER BY inserted_at DESC`
+               );
+               const needle = `%${args.query}%`;
+               stmt.bind([needle, needle]);
+             }
+
+             const rows = [];
+             while (stmt.step()) {
+               rows.push(stmt.getAsObject());
+             }
+             stmt.free();
+             return [JSON.stringify(rows)];
+           }
+           """,
+           %{query: query},
+           return: :value
+         ) do
+      {:ok, json} when is_binary(json) ->
+        json
+        |> Jason.decode!()
+        |> Enum.map(fn r ->
+          %Note{
+            id: r["id"],
+            title: r["title"],
+            body: r["body"],
+            inserted_at: r["inserted_at"],
+            updated_at: r["updated_at"]
+          }
+        end)
+
+      _ ->
+        default
     end
   end
 
@@ -197,8 +268,22 @@ defmodule WasmLiveView.NotesSqliteLive do
       </div>
     </.form>
 
+    <div class="mb-4">
+      <label for="notes-search" class="text-sm font-medium block mb-1">Live search</label>
+      <input
+        id="notes-search"
+        name="value"
+        type="text"
+        value={@search}
+        placeholder="Try: title AND body, title OR body, quoted phrases..."
+        phx-keyup="do-search"
+        phx-debounce="250"
+        class="input input-bordered w-full"
+      />
+    </div>
+
     <div :if={@notes == []} class="text-base-content/50 italic">
-      No notes yet. Create one above!
+      <%= if @search == "", do: "No notes yet. Create one above!", else: "No notes match this search." %>
     </div>
 
     <div :for={note <- @notes} class="card card-border bg-base-100 mb-3">
