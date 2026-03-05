@@ -18,7 +18,14 @@
     // Restore path after 404.html redirect (SPA deep-link support on GitHub Pages).
     (function () {
       var p = new URLSearchParams(window.location.search).get('p');
-      if (p) window.history.replaceState(null, '', '/' + p);
+      if (!p) return;
+      var restored = '/' + p;
+      // Normalize deep links like /popcorn_live_view/wokwi/ -> /popcorn_live_view/wokwi
+      // so relative asset URLs keep resolving under /popcorn_live_view/.
+      if (/\/$/.test(restored) && restored.split('/').filter(Boolean).length > 1) {
+        restored = restored.replace(/\/+$/, '');
+      }
+      window.history.replaceState(null, '', restored);
     })();
   </script>
   <script>

@@ -48,6 +48,14 @@ jobs:
         env:
           SCRIPT_NAME: /popcorn_live_view
 
+      - name: Patch vendored Popcorn bundle path
+        run: |
+          set -euo pipefail
+          target="static/wasm/popcorn.js"
+          test -f "$target"
+          node -e 'const fs=require("fs");const p=process.argv[1];const from="${\"../\" + this._bundlePath}";const to="${\"/\" + this._bundlePath.replace(/^\\/+/, \"\")}";const src=fs.readFileSync(p,"utf8");if(!src.includes(from)){throw new Error("Expected bundle-path pattern not found in "+p)};fs.writeFileSync(p, src.replace(from,to));' "$target"
+          grep -n 'meta name="bundle-path"' "$target"
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
