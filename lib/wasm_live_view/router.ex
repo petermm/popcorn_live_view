@@ -9,6 +9,7 @@ defmodule WasmLiveView.Router do
     live("/streams", WasmLiveView.StreamsLive, :index)
     live("/eval", WasmLiveView.EvalLive, :index)
     live("/interop", WasmLiveView.InteropDemoLive, :index)
+    live("/chrome-ai", WasmLiveView.ChromeAILive, :index)
     live("/notes-persisted", WasmLiveView.NotesPersistedLive, :index)
     live("/notes-sqlite", WasmLiveView.NotesSqliteLive, :index)
     live("/req-demo", WasmLiveView.ReqDemoLive, :index)
