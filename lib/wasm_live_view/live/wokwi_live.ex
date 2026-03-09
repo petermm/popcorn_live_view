@@ -295,7 +295,7 @@ defmodule WasmLiveView.WokwiLive do
           <div class="card-body p-4 flex flex-col min-h-0 h-full">
             <div
               id="wokwi-embed"
-              phx-hook="WokwiEmbed"
+              phx-hook=".WokwiEmbed"
               phx-update="ignore"
               class="rounded-lg overflow-hidden flex-1 min-h-0"
             ></div>
@@ -312,7 +312,7 @@ defmodule WasmLiveView.WokwiLive do
           </div>
           <div
             id="wokwi-serial-output"
-            phx-hook="WokwiSerialAutoScroll"
+            phx-hook=".WokwiSerialAutoScroll"
             class="bg-base-300 rounded-lg p-3 overflow-auto font-mono text-xs flex-1 min-h-0"
           >
             <pre class="text-success whitespace-pre-wrap break-all">{if @output == "", do: "Waiting for simulation output...", else: @output}</pre>
@@ -320,6 +320,235 @@ defmodule WasmLiveView.WokwiLive do
         </div>
       </div>
     </div>
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".WokwiEmbed">
+    const WOKWI_CLIENT_CDN =
+      "https://cdn.jsdelivr.net/npm/@wokwi/client@0.26.0/+esm";
+
+    const wokwiDefaultDiagram = JSON.stringify({
+      version: 1,
+      author: "WasmLiveView",
+      editor: "wokwi",
+      serialMonitor: { display: "never" },
+      parts: [
+        {
+          type: "board-esp32-devkit-c-v4",
+          id: "esp",
+          top: 0,
+          left: 0,
+          attrs: {},
+        },
+        {
+          type: "wokwi-led",
+          id: "led1",
+          top: 25.2,
+          left: 138.2,
+          attrs: { color: "red", flip: "" },
+        },
+        {
+          type: "wokwi-resistor",
+          id: "r1",
+          top: 100.8,
+          left: 124.25,
+          rotate: 90,
+          attrs: { value: "1000" },
+        },
+        {
+          type: "wokwi-pushbutton",
+          id: "btn1",
+          top: 60,
+          left: -90,
+          attrs: { color: "blue", label: "BTN", key: "b", bounce: "0" },
+        },
+      ],
+      connections: [
+        ["esp:TX", "$serialMonitor:RX", "", []],
+        ["esp:RX", "$serialMonitor:TX", "", []],
+        ["led1:C", "r1:1", "green", ["v0"]],
+        ["esp:GND.3", "r1:2", "black", ["h33.64", "v57.6", "h19.2"]],
+        ["esp:2", "led1:A", "green", ["h0"]],
+        ["btn1:1.r", "esp:4", "blue", ["h0", "v0"]],
+        ["btn1:2.r", "esp:GND.1", "black", ["h0", "v19.2"]],
+      ],
+      dependencies: {},
+    });
+
+    export default {
+      async mounted() {
+        this.flashUploadSeq = 0;
+        this.cachedFlashSections = {};
+        const baseUrl = new URL("..", import.meta.url).href;
+        const basePath = new URL(baseUrl).pathname.replace(/\/$/, "");
+
+        // Create and mount the Wokwi iframe.
+        // experimental/embed blocks framing; experimental/viewer?api=1 allows it and
+        // supports the full @wokwi/client MessagePort API.
+        const iframe = document.createElement("iframe");
+        iframe.src =
+          "https://wokwi.com/experimental/embed?client_id=wokwi_client_omf4ejkz6n6twj7d3x2eqmyp";
+        iframe.style.cssText = "width:100%;height:100%;border:none;";
+        iframe.setAttribute("loading", "lazy");
+        iframe.setAttribute("credentialless", "");
+        iframe.referrerPolicy = "no-referrer";
+        this.el.appendChild(iframe);
+        this.wokwiIframe = iframe;
+        this.wokwiClient = null;
+
+        this.handleEvent("wokwi-flash", async ({ flasher_args, flash_files }) => {
+          if (!this.wokwiClient) return;
+          try {
+            const flasherArgs = flasher_args || {};
+            const flashFiles = flash_files || {};
+            const flashMap = flasherArgs.flash_files || {};
+            const flashSections = [];
+            const runId = `${Date.now()}-${this.flashUploadSeq++}`;
+
+            for (const [offsetHex, sourceName] of Object.entries(flashMap)) {
+              const offsetKey = offsetHex.toLowerCase();
+              if (
+                sourceName !== "main.avm" &&
+                this.cachedFlashSections[offsetKey]
+              ) {
+                flashSections.push({
+                  offset: parseInt(offsetHex, 16),
+                  file: this.cachedFlashSections[offsetKey],
+                });
+                continue;
+              }
+
+              let bytes;
+              const content = flashFiles[sourceName];
+              if (typeof content === "string") {
+                bytes = Uint8Array.from(atob(content), (c) => c.charCodeAt(0));
+              } else if (Array.isArray(content)) {
+                bytes = Uint8Array.from(content);
+              } else if (content instanceof Uint8Array) {
+                bytes = content;
+              } else if (content instanceof ArrayBuffer) {
+                bytes = new Uint8Array(content);
+              } else {
+                const firmwareUrl = `${basePath}/wokwi/firmware/${sourceName}`;
+                const resp = await fetch(firmwareUrl);
+                if (!resp.ok) {
+                  throw new Error(`failed to fetch ${firmwareUrl}: ${resp.status}`);
+                }
+                bytes = new Uint8Array(await resp.arrayBuffer());
+              }
+
+              const uploadName = `flash-${offsetHex}-${runId}.bin`;
+              await this.wokwiClient.fileUpload(uploadName, bytes);
+              if (sourceName !== "main.avm") {
+                this.cachedFlashSections[offsetKey] = uploadName;
+              }
+              flashSections.push({
+                offset: parseInt(offsetHex, 16),
+                file: uploadName,
+              });
+            }
+
+            this.wokwiClient.simStart({
+              firmware: flashSections,
+              flashSize: flasherArgs.flash_settings?.flash_size,
+            });
+          } catch (err) {
+            console.error("[WokwiEmbed] AVM upload failed:", err);
+            this.pushEvent("serial-output", {
+              text: `\n[wokwi upload error] ${String(err)}\n`,
+            });
+          }
+        });
+
+        this.handleEvent("download-avm", ({ filename, bytes }) => {
+          const data = Array.isArray(bytes)
+            ? Uint8Array.from(bytes)
+            : new Uint8Array();
+          const blob = new Blob([data], { type: "application/octet-stream" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename || "main.avm";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        });
+
+        const handleMessage = async (event) => {
+          if (event.origin !== "https://wokwi.com") return;
+          if (!this.wokwiIframe || event.source !== this.wokwiIframe.contentWindow)
+            return;
+          if (!event.data || !event.data.port) return;
+
+          const { MessagePortTransport, APIClient } = await import(
+            /* @vite-ignore */ WOKWI_CLIENT_CDN
+          );
+          const transport = new MessagePortTransport(event.data.port);
+          const client = new APIClient(transport);
+          this.wokwiClient = client;
+
+          await client.connected;
+
+          client.onConnected = async () => {
+            this.pushEvent("wokwi-connected", {});
+            await client.serialMonitorListen();
+            const serialDisplay = this.el.dataset.serialMonitor || "never";
+            const diagram = JSON.parse(wokwiDefaultDiagram);
+            diagram.serialMonitor = { display: serialDisplay };
+            await client.fileUpload("diagram.json", JSON.stringify(diagram));
+          };
+
+          client.listen("serial-monitor:data", (evt) => {
+            const bytes = new Uint8Array(evt.payload.bytes);
+            const text = new TextDecoder().decode(bytes);
+            this.pushEvent("serial-output", { text });
+          });
+
+          client.onError = (err) => console.error("[WokwiEmbed] error:", err);
+        };
+
+        window.addEventListener("message", handleMessage);
+        this._handleMessage = handleMessage;
+      },
+
+      destroyed() {
+        if (this._handleMessage) {
+          window.removeEventListener("message", this._handleMessage);
+          this._handleMessage = null;
+        }
+        this.wokwiIframe = null;
+        this.wokwiClient = null;
+        this.cachedFlashSections = {};
+      },
+    };
+    </script>
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".WokwiSerialAutoScroll">
+    export default {
+      mounted() {
+        this._raf = null;
+        this._scrollToBottom();
+      },
+
+      updated() {
+        this._scrollToBottom();
+      },
+
+      destroyed() {
+        if (this._raf != null) {
+          cancelAnimationFrame(this._raf);
+          this._raf = null;
+        }
+      },
+
+      _scrollToBottom() {
+        if (this._raf != null) cancelAnimationFrame(this._raf);
+        this._raf = requestAnimationFrame(() => {
+          this.el.scrollTop = this.el.scrollHeight;
+          this._raf = null;
+        });
+      },
+    };
+    </script>
     """
   end
 end
