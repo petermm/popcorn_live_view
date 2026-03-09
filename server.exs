@@ -19,8 +19,8 @@ defmodule FileWatcher do
         loop(Process.send_after(self(), :cook, 1000))
 
       :cook ->
-        IO.puts("\n[watcher] change detected, running mix cook...")
-        System.cmd("mix", ["cook"], into: IO.stream(:stdio, :line), cd: File.cwd!())
+        IO.puts("\n[watcher] change detected, running mix setup...")
+        System.cmd("mix", ["setup"], into: IO.stream(:stdio, :line), cd: File.cwd!())
         loop(nil)
     end
   end
