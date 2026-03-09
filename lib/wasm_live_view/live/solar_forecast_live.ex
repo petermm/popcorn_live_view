@@ -2,6 +2,7 @@ defmodule WasmLiveView.SolarForecastLive do
   use Phoenix.LiveView, layout: {WasmLiveView.Layouts, :app}
 
   import WasmLiveViewWeb.CoreComponents
+  import WasmLiveView.Components.Geolocation
   @cupertino_lat 37.3229
   @cupertino_lon -122.0322
 
@@ -377,7 +378,7 @@ defmodule WasmLiveView.SolarForecastLive do
       <.button phx-click="get-cupertino-forecast" disabled={@loading}>
         Get forecast for Cupertino
       </.button>
-      <div id="geolocation" phx-hook="Geolocation"></div>
+      <.geolocation />
     </div>
 
     <div :if={@error} class="alert alert-error mt-4">
@@ -494,7 +495,7 @@ defmodule WasmLiveView.SolarForecastLive do
           <h2 class="card-title">Hourly Output</h2>
           <canvas
             id="combined-chart"
-            phx-hook="EaselCanvas"
+            phx-hook=".EaselCanvas"
             width="560"
             height="280"
             data-ops={Jason.encode!(@combined_chart_ops)}
@@ -526,6 +527,45 @@ defmodule WasmLiveView.SolarForecastLive do
         </div>
       </div>
     </div>
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".EaselCanvas">
+    export default {
+      executeOps(ops) {
+        const ctx = this.context;
+        for (const [op, args] of ops) {
+          if (op === "set") {
+            ctx[args[0]] = args[1];
+          } else if (typeof ctx[op] === "function") {
+            ctx[op](...args);
+          }
+        }
+      },
+      draw() {
+        const dpr = window.devicePixelRatio || 1;
+        const w = parseInt(this.el.getAttribute("width")) || this.el.width;
+        const h = parseInt(this.el.getAttribute("height")) || this.el.height;
+        if (this.el.width !== w * dpr || this.el.height !== h * dpr) {
+          this.el.width = w * dpr;
+          this.el.height = h * dpr;
+          this.el.style.width = w + "px";
+          this.el.style.height = h + "px";
+        }
+        const ctx = this.context;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, this.el.width, this.el.height);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const ops = JSON.parse(this.el.dataset.ops || "[]");
+        if (ops.length > 0) this.executeOps(ops);
+      },
+      mounted() {
+        this.context = this.el.getContext("2d");
+        this.draw();
+      },
+      updated() {
+        requestAnimationFrame(() => this.draw());
+      },
+    };
+    </script>
     """
   end
 

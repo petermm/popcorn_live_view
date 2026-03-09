@@ -2,6 +2,7 @@ defmodule WasmLiveView.WeatherLive do
   use Phoenix.LiveView, layout: {WasmLiveView.Layouts, :app}
 
   import WasmLiveViewWeb.CoreComponents
+  import WasmLiveView.Components.Geolocation
   @cupertino_lat 37.3229
   @cupertino_lon -122.0322
 
@@ -180,7 +181,7 @@ defmodule WasmLiveView.WeatherLive do
       <.button phx-click="get-cupertino-weather" disabled={@loading}>
         Get weather for Cupertino
       </.button>
-      <div id="geolocation" phx-hook="Geolocation"></div>
+      <.geolocation />
     </div>
 
     <div :if={@error} class="alert alert-error mt-4">

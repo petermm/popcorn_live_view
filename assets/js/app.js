@@ -2,14 +2,14 @@ import "phoenix_html";
 import { Socket } from "phoenix";
 import { LiveSocket } from "phoenix_live_view";
 import PopcornTransport from "./popcorn_transport.js";
-import "phoenix-colocated/wasm_live_view";
+import { hooks as colocatedHooks } from "phoenix-colocated/wasm_live_view";
 
 // Derive site root from app.js location (handles GitHub Pages subpath).
 const BASE_URL = new URL("..", import.meta.url).href;
 const BASE_PATH = new URL(BASE_URL).pathname.replace(/\/$/, "");
 
 // JS Interop Demo hooks
-const Hooks = {};
+const Hooks = { ...colocatedHooks };
 
 // Ping hook: pushes an event to the server on mount, then every 3 seconds
 Hooks.Ping = {
@@ -276,87 +276,6 @@ Hooks.ChromeAIDemo = {
       this.setBusy("writer", false);
       this.renderStatus();
     }
-  },
-};
-
-// EaselCanvas hook: renders Easel ops on a <canvas> element
-Hooks.EaselCanvas = {
-  executeOps(ops) {
-    const ctx = this.context;
-    for (const [op, args] of ops) {
-      if (op === "set") {
-        ctx[args[0]] = args[1];
-      } else if (typeof ctx[op] === "function") {
-        ctx[op](...args);
-      }
-    }
-  },
-  draw() {
-    const dpr = window.devicePixelRatio || 1;
-    const w = parseInt(this.el.getAttribute("width")) || this.el.width;
-    const h = parseInt(this.el.getAttribute("height")) || this.el.height;
-    if (this.el.width !== w * dpr || this.el.height !== h * dpr) {
-      this.el.width = w * dpr;
-      this.el.height = h * dpr;
-      this.el.style.width = w + "px";
-      this.el.style.height = h + "px";
-    }
-    const ctx = this.context;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, this.el.width, this.el.height);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const ops = JSON.parse(this.el.dataset.ops || "[]");
-    if (ops.length > 0) this.executeOps(ops);
-  },
-  mounted() {
-    this.context = this.el.getContext("2d");
-    this.draw();
-  },
-  updated() {
-    requestAnimationFrame(() => this.draw());
-  },
-};
-
-// Geolocation hook: gets browser geolocation when triggered.
-// Uses a single shared instance so multiple LiveViews don't conflict.
-Hooks.Geolocation = {
-  mounted() {
-    this._checkPermission = () => {
-      if (!navigator.permissions) return;
-      navigator.permissions
-        .query({ name: "geolocation" })
-        .then((result) => {
-          if (result.state !== "denied") {
-            this.pushEvent("permission-result", { granted: true });
-          }
-        })
-        .catch(() => {});
-    };
-
-    this._requestLocation = () => {
-      if (!navigator.geolocation) {
-        this.pushEvent("location-error", {
-          error: "Geolocation not supported",
-        });
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          this.pushEvent("location-found", {
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-          });
-        },
-        (err) => {
-          this.pushEvent("location-error", { error: err.message });
-        },
-        { timeout: 15000, maximumAge: 300000 },
-      );
-    };
-
-    this.handleEvent("check-permission", this._checkPermission);
-    this.handleEvent("request-location", this._requestLocation);
   },
 };
 
