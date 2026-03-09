@@ -491,7 +491,7 @@ defmodule WasmLiveView.SolarForecastLive do
 
       <!-- Combined Hourly Chart -->
       <div class="card bg-base-200 shadow-xl">
-        <div class="card-body">
+        <div class="card-body p-3 sm:p-6">
           <h2 class="card-title">Hourly Output</h2>
           <canvas
             id="combined-chart"
@@ -499,7 +499,7 @@ defmodule WasmLiveView.SolarForecastLive do
             width="560"
             height="280"
             data-ops={Jason.encode!(@combined_chart_ops)}
-            class="w-full max-w-[560px]"
+            class="block w-full"
           />
         </div>
       </div>
@@ -542,27 +542,45 @@ defmodule WasmLiveView.SolarForecastLive do
       },
       draw() {
         const dpr = window.devicePixelRatio || 1;
-        const w = parseInt(this.el.getAttribute("width")) || this.el.width;
-        const h = parseInt(this.el.getAttribute("height")) || this.el.height;
-        if (this.el.width !== w * dpr || this.el.height !== h * dpr) {
-          this.el.width = w * dpr;
-          this.el.height = h * dpr;
-          this.el.style.width = w + "px";
-          this.el.style.height = h + "px";
+        const logicalW = parseInt(this.el.dataset.logicalWidth, 10) || 560;
+        const logicalH = parseInt(this.el.dataset.logicalHeight, 10) || 280;
+        const parent = this.el.parentElement;
+        const parentStyles = parent ? window.getComputedStyle(parent) : null;
+        const parentPadding =
+          parentStyles
+            ? parseFloat(parentStyles.paddingLeft) + parseFloat(parentStyles.paddingRight)
+            : 0;
+        const availableW = parent ? parent.clientWidth - parentPadding : logicalW;
+        const cssW = Math.max(Math.round(availableW), 240);
+        const cssH = Math.round(cssW * logicalH / logicalW);
+
+        if (this.el.width !== cssW * dpr || this.el.height !== cssH * dpr) {
+          this.el.width = cssW * dpr;
+          this.el.height = cssH * dpr;
+          this.el.style.width = "100%";
+          this.el.style.height = cssH + "px";
         }
+
         const ctx = this.context;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, this.el.width, this.el.height);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.setTransform(dpr * (cssW / logicalW), 0, 0, dpr * (cssH / logicalH), 0, 0);
         const ops = JSON.parse(this.el.dataset.ops || "[]");
         if (ops.length > 0) this.executeOps(ops);
       },
       mounted() {
+        this.el.dataset.logicalWidth = this.el.getAttribute("width") || "560";
+        this.el.dataset.logicalHeight = this.el.getAttribute("height") || "280";
         this.context = this.el.getContext("2d");
+        this.resizeObserver = new ResizeObserver(() => this.draw());
+        this.resizeObserver.observe(this.el.parentElement);
         this.draw();
       },
       updated() {
         requestAnimationFrame(() => this.draw());
+      },
+      destroyed() {
+        this.resizeObserver?.disconnect();
       },
     };
     </script>
