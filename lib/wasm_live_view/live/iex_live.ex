@@ -59,7 +59,7 @@ defmodule WasmLiveView.IexLive do
 
     <div
       id="iex-terminal"
-      phx-hook="IexTerminal"
+      phx-hook=".IexTerminal"
       phx-update="ignore"
       class="w-full rounded-lg overflow-hidden border border-base-300"
       style="height: 500px; background: #1e1e1e;"
@@ -85,6 +85,152 @@ defmodule WasmLiveView.IexLive do
         persisted in <code>localStorage</code>.
       </p>
     </div>
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".IexTerminal">
+    const GHOSTTY_CDN =
+      "https://cdn.jsdelivr.net/npm/ghostty-web@0.4.0/dist/ghostty-web.js";
+    let ghosttyModule = null;
+
+    // Singleton terminal state — persisted across LiveView mount/destroy cycles so
+    // navigating away and back keeps the terminal exactly as the user left it.
+    let iexTerm = null;
+    let iexTermEl = null;
+    let iexDataDisposable = null;
+
+    export default {
+      async mounted() {
+        if (!ghosttyModule) {
+          ghosttyModule = await import(/* @vite-ignore */ GHOSTTY_CDN);
+          await ghosttyModule.init();
+        }
+        const { Terminal } = ghosttyModule;
+
+        if (!iexTerm) {
+          iexTermEl = document.createElement("div");
+          iexTermEl.style.cssText = "width:100%;height:100%;";
+          iexTerm = new Terminal({
+            cursorBlink: true,
+            scrollback: 5000,
+            theme: {
+              background: "#1e1e1e",
+              foreground: "#d4d4d4",
+              cursor: "#d4d4d4",
+            },
+          });
+          iexTerm.open(iexTermEl);
+        }
+
+        this.el.innerHTML = "";
+        iexTermEl.style.display = "";
+        this.el.appendChild(iexTermEl);
+        this.term = iexTerm;
+        iexTerm.focus();
+
+        this.histIdx = -1;
+        this.curInput = "";
+        this.savedInput = "";
+        try {
+          this.history = JSON.parse(localStorage.getItem("iex_history") || "[]");
+        } catch {
+          this.history = [];
+        }
+
+        if (iexDataDisposable) iexDataDisposable.dispose();
+        iexDataDisposable = iexTerm.onData((data) => {
+          if (data === "\x1b[A" || data === "\x1bOA") {
+            this._histBack();
+            return;
+          }
+          if (data === "\x1b[B" || data === "\x1bOB") {
+            this._histForward();
+            return;
+          }
+
+          if (data === "\r") {
+            const cmd = this.curInput.trim();
+            if (cmd && this.history[this.history.length - 1] !== cmd) {
+              this.history.push(cmd);
+              if (this.history.length > 200) this.history.shift();
+              localStorage.setItem("iex_history", JSON.stringify(this.history));
+            }
+            this.curInput = "";
+            this.histIdx = -1;
+            this.savedInput = "";
+          } else if (data === "\x7f" || data === "\b") {
+            if (this.curInput.length > 0)
+              this.curInput = this.curInput.slice(0, -1);
+          } else if (!data.startsWith("\x1b")) {
+            this.curInput += data;
+          }
+
+          this.pushEvent("send-input", { data });
+        });
+
+        this.handleEvent("clear-history", () => {
+          this.history = [];
+          this.histIdx = -1;
+          this.savedInput = "";
+          localStorage.removeItem("iex_history");
+        });
+
+        this.pushEvent("terminal-ready", {});
+
+        const writeTty = (data) => {
+          const text = new TextDecoder().decode(
+            Uint8Array.from(atob(data), (c) => c.charCodeAt(0)),
+          );
+          const CHUNK = 512;
+          for (let i = 0; i < text.length; i += CHUNK) {
+            iexTerm.write(text.slice(i, i + CHUNK));
+          }
+        };
+
+        this.handleEvent("tty-data", ({ data }) => writeTty(data));
+      },
+
+      _replaceInput(newCmd) {
+        const bsp = "\x7f".repeat(this.curInput.length);
+        this.curInput = newCmd;
+        this.pushEvent("send-input", { data: bsp + newCmd });
+      },
+
+      _histBack() {
+        if (this.history.length === 0) return;
+        if (this.histIdx === -1) {
+          this.savedInput = this.curInput;
+          this.histIdx = this.history.length - 1;
+        } else if (this.histIdx > 0) {
+          this.histIdx--;
+        } else {
+          return;
+        }
+        this._replaceInput(this.history[this.histIdx]);
+      },
+
+      _histForward() {
+        if (this.histIdx === -1) return;
+        if (this.histIdx < this.history.length - 1) {
+          this.histIdx++;
+          this._replaceInput(this.history[this.histIdx]);
+        } else {
+          this.histIdx = -1;
+          this._replaceInput(this.savedInput);
+          this.savedInput = "";
+        }
+      },
+
+      destroyed() {
+        if (iexTermEl) {
+          iexTermEl.style.display = "none";
+          document.body.appendChild(iexTermEl);
+        }
+        if (iexDataDisposable) {
+          iexDataDisposable.dispose();
+          iexDataDisposable = null;
+        }
+      },
+    };
+    </script>
     """
   end
 end
