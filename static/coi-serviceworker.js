@@ -35,7 +35,8 @@ self.addEventListener("fetch", function (event) {
         // Our own pages/assets: inject full cross-origin isolation headers so
         // SharedArrayBuffer / WASM threads work.
         headers.set("Cross-Origin-Opener-Policy", "same-origin");
-        headers.set("Cross-Origin-Embedder-Policy", "credentialless");
+        const isSafari = /Safari\//.test(self.navigator.userAgent) && !/Chrome\//.test(self.navigator.userAgent);
+        headers.set("Cross-Origin-Embedder-Policy", isSafari ? "require-corp" : "credentialless");
         headers.set("Cross-Origin-Resource-Policy", "cross-origin");
 
         return new Response(response.body, {
