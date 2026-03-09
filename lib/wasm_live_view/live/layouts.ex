@@ -6,12 +6,11 @@ defmodule WasmLiveView.Layouts do
                  end)
 
   @nav_items [
-    %{path: @script_prefix <> "/", label: "Wokwi", key: :home},
+    %{path: @script_prefix <> "/", label: "Notes", key: :home},
     %{path: @script_prefix <> "/counter", label: "Counter", key: :counter},
     %{path: @script_prefix <> "/streams", label: "Streams", key: :streams},
     %{path: @script_prefix <> "/eval", label: "Elixir eval", key: :eval},
     %{path: @script_prefix <> "/interop", label: "JS Interop", key: :interop},
-    %{path: @script_prefix <> "/chrome-ai", label: "chromeAI", key: :chrome_ai},
     %{
       path: @script_prefix <> "/notes-persisted",
       label: "Notes (Persisted)",
@@ -25,8 +24,7 @@ defmodule WasmLiveView.Layouts do
     %{path: @script_prefix <> "/solar-forecast", label: "Solar Forecast", key: :solar_forecast},
     %{path: @script_prefix <> "/regex-tester", label: "RegexTester", key: :regex_tester},
     %{path: @script_prefix <> "/runtime-stats", label: "Runtime Stats", key: :runtime_stats},
-    %{path: @script_prefix <> "/iex", label: "IEX", key: :iex},
-    %{path: @script_prefix <> "/wokwi", label: "Wokwi", key: :wokwi}
+    %{path: @script_prefix <> "/iex", label: "IEX", key: :iex}
   ]
 
   defp sidebar(assigns) do

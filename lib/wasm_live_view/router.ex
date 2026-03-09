@@ -3,7 +3,7 @@ defmodule WasmLiveView.Router do
   import Phoenix.LiveView.Router
 
   scope "/" do
-    live("/", WasmLiveView.WokwiLive, :index)
+    live("/", WasmLiveView.NotesLive, :index)
     live("/notes", WasmLiveView.NotesLive, :index)
     live("/counter", WasmLiveView.CounterLive, :index)
     live("/streams", WasmLiveView.StreamsLive, :index)
