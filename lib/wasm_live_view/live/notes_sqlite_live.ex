@@ -142,22 +142,47 @@ defmodule WasmLiveView.NotesSqliteLive do
                   FROM notes
                   WHERE lower(title) LIKE lower(?)
                      OR lower(coalesce(body, '')) LIKE lower(?)
-                  ORDER BY inserted_at DESC`,
+                 ORDER BY inserted_at DESC`,
                  [needle, needle]
                );
+             };
+             const normalizeFtsQuery = (query) => {
+               if (!/^[\p{L}\p{N}_\s-]+$/u.test(query)) {
+                 return query;
+               }
+
+               return query
+                 .trim()
+                 .split(/\s+/)
+                 .filter(Boolean)
+                 .map((term) => `${term}*`)
+                 .join(" ");
+             };
+             const mergeRows = (ftsRows, likeRows) => {
+               const seen = new Set();
+               const merged = [];
+
+               for (const row of [...ftsRows, ...likeRows]) {
+                 if (seen.has(row.id)) continue;
+                 seen.add(row.id);
+                 merged.push(row);
+               }
+
+               return merged;
              };
              let rows;
 
              if (searchMode === "fts5") {
                try {
-                 rows = db.selectObjects(
+                 const ftsRows = db.selectObjects(
                    `SELECT n.id, n.title, n.body, n.inserted_at, n.updated_at
                     FROM notes n
                     JOIN notes_fts ON notes_fts.rowid = n.id
                     WHERE notes_fts MATCH ?
                     ORDER BY bm25(notes_fts), n.inserted_at DESC`,
-                   [args.query]
+                   [normalizeFtsQuery(args.query)]
                  );
+                 rows = mergeRows(ftsRows, selectLikeRows(args.query));
                } catch (_err) {
                  rows = selectLikeRows(args.query);
                }
