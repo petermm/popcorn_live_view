@@ -6,13 +6,14 @@ defmodule WasmLiveView.NotesSqliteLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    notes = db_list()
+    all_notes = db_list()
 
     {:ok,
      socket
      |> assign(:current_route, :notes_sqlite)
      |> assign(:search, "")
-     |> assign(:notes, notes)
+     |> assign(:all_notes, all_notes)
+     |> assign(:shown_notes, all_notes)
      |> assign(:editing, nil)
      |> assign_form(Note.changeset(%Note{}, %{}))}
   end
@@ -32,7 +33,7 @@ defmodule WasmLiveView.NotesSqliteLive do
   end
 
   def handle_event("edit", %{"id" => id}, socket) do
-    note = Enum.find(socket.assigns.notes, &(&1.id == String.to_integer(id)))
+    note = Enum.find(socket.assigns.all_notes, &(&1.id == String.to_integer(id)))
     {:noreply, socket |> assign(:editing, note) |> assign_form(Note.changeset(note, %{}))}
   end
 
@@ -42,13 +43,13 @@ defmodule WasmLiveView.NotesSqliteLive do
 
   def handle_event("delete", %{"id" => id}, socket) do
     db_delete(String.to_integer(id))
-    {:noreply, assign(socket, :notes, db_search(socket.assigns.search, db_list()))}
+    {:noreply, refresh_notes(socket)}
   end
 
   def handle_event("do-search", %{"value" => value}, socket) do
     value = String.trim(value)
-    notes = db_search(value, socket.assigns.notes)
-    {:noreply, socket |> assign(:search, value) |> assign(:notes, notes)}
+    shown_notes = do_search(socket.assigns.all_notes, value)
+    {:noreply, socket |> assign(:search, value) |> assign(:shown_notes, shown_notes)}
   end
 
   defp create_note(socket, params) do
@@ -58,11 +59,10 @@ defmodule WasmLiveView.NotesSqliteLive do
     case Note.changeset(note, params) |> Ecto.Changeset.apply_action(:insert) do
       {:ok, new_note} ->
         db_insert(new_note)
-        notes = db_search(socket.assigns.search, db_list())
 
         {:noreply,
          socket
-         |> assign(:notes, notes)
+         |> refresh_notes()
          |> assign(:editing, nil)
          |> assign_form(Note.changeset(%Note{}, %{}))}
 
@@ -78,11 +78,10 @@ defmodule WasmLiveView.NotesSqliteLive do
          |> Ecto.Changeset.apply_action(:update) do
       {:ok, updated} ->
         db_update(updated)
-        notes = db_search(socket.assigns.search, db_list())
 
         {:noreply,
          socket
-         |> assign(:notes, notes)
+         |> refresh_notes()
          |> assign(:editing, nil)
          |> assign_form(Note.changeset(%Note{}, %{}))}
 
@@ -127,35 +126,99 @@ defmodule WasmLiveView.NotesSqliteLive do
     end
   end
 
-  defp db_search("", _default), do: db_list()
+  defp refresh_notes(socket) do
+    all_notes = db_list()
 
-  defp db_search(query, default) do
+    socket
+    |> assign(:all_notes, all_notes)
+    |> assign(:shown_notes, do_search(all_notes, socket.assigns.search))
+  end
+
+  defp do_search(all_notes, ""), do: all_notes
+
+  defp do_search(all_notes, query) do
+    ids = db_search_ids(query, Enum.map(all_notes, & &1.id))
+    notes_by_id = Map.new(all_notes, &{&1.id, &1})
+
+    Enum.flat_map(ids, fn id ->
+      case notes_by_id do
+        %{^id => note} -> [note]
+        _ -> []
+      end
+    end)
+  end
+
+  defp db_search_ids(query, default_ids) do
     case Popcorn.Wasm.run_js(
            """
            ({ args }) => {
              const db = window.__sqliteDB;
              const searchMode = window.__notesSearchMode || "like";
-             const selectLikeRows = (query) => {
-               const needle = `%${query}%`;
-               return db.selectObjects(
-                 `SELECT id, title, body, inserted_at, updated_at
-                  FROM notes
-                  WHERE lower(title) LIKE lower(?)
-                     OR lower(coalesce(body, '')) LIKE lower(?)
-                 ORDER BY inserted_at DESC`,
-                 [needle, needle]
-               );
+             const tokenizeQuery = (query) =>
+               Array.from(query.matchAll(/"[^"]+"|\\S+/gu), (match) => match[0]);
+             const parseQueryGroups = (query) => {
+               return tokenizeQuery(query).reduce(
+                 (groups, token) => {
+                   const normalized = token.trim();
+                   const upper = normalized.toUpperCase();
+
+                   if (!normalized) return groups;
+                   if (upper === "OR") {
+                     groups.push([]);
+                     return groups;
+                   }
+                   if (upper === "AND") return groups;
+
+                   const term =
+                     normalized.startsWith('"') && normalized.endsWith('"')
+                       ? normalized.slice(1, -1).trim().toLowerCase()
+                       : normalized.toLowerCase();
+
+                   if (term) {
+                     groups[groups.length - 1].push(term);
+                   }
+
+                   return groups;
+                 },
+                 [[]]
+               ).filter((group) => group.length > 0);
              };
-             const normalizeFtsQuery = (query) => {
-               if (!/^[\p{L}\p{N}_\s-]+$/u.test(query)) {
-                 return query;
+             const selectLikeRows = (query) => {
+               const groups = parseQueryGroups(query);
+
+               if (groups.length === 0) {
+                 return db.selectObjects(
+                   `SELECT id FROM notes ORDER BY inserted_at DESC`
+                 );
                }
 
-               return query
-                 .trim()
-                 .split(/\s+/)
+               return db
+                 .selectObjects(
+                   `SELECT id, title, body, inserted_at
+                    FROM notes
+                    ORDER BY inserted_at DESC`
+                 )
+                 .filter((row) => {
+                   const haystack = `${row.title || ""}\\n${row.body || ""}`.toLowerCase();
+                   return groups.some((terms) => terms.every((term) => haystack.includes(term)));
+                 })
+                 .map((row) => ({ id: row.id }));
+             };
+             const normalizeFtsQuery = (query) => {
+               const operators = new Set(["AND", "OR", "NOT"]);
+
+               return tokenizeQuery(query)
+                 .map((token) => {
+                   const normalized = token.trim();
+                   const upper = normalized.toUpperCase();
+
+                   if (!normalized) return null;
+                   if (operators.has(upper)) return upper;
+                   if (normalized.startsWith('"') && normalized.endsWith('"')) return normalized;
+                   if (/^[\\p{L}\\p{N}_-]+$/u.test(normalized)) return `${normalized}*`;
+                   return normalized;
+                 })
                  .filter(Boolean)
-                 .map((term) => `${term}*`)
                  .join(" ");
              };
              const mergeRows = (ftsRows, likeRows) => {
@@ -175,7 +238,7 @@ defmodule WasmLiveView.NotesSqliteLive do
              if (searchMode === "fts5") {
                try {
                  const ftsRows = db.selectObjects(
-                   `SELECT n.id, n.title, n.body, n.inserted_at, n.updated_at
+                   `SELECT n.id
                     FROM notes n
                     JOIN notes_fts ON notes_fts.rowid = n.id
                     WHERE notes_fts MATCH ?
@@ -190,27 +253,17 @@ defmodule WasmLiveView.NotesSqliteLive do
                rows = selectLikeRows(args.query);
              }
 
-             return [JSON.stringify(rows)];
+             return [JSON.stringify(rows.map((row) => row.id))];
            }
            """,
            %{query: query},
            return: :value
          ) do
       {:ok, json} when is_binary(json) ->
-        json
-        |> Jason.decode!()
-        |> Enum.map(fn r ->
-          %Note{
-            id: r["id"],
-            title: r["title"],
-            body: r["body"],
-            inserted_at: r["inserted_at"],
-            updated_at: r["updated_at"]
-          }
-        end)
+        Jason.decode!(json)
 
       _ ->
-        default
+        default_ids
     end
   end
 
@@ -310,11 +363,11 @@ defmodule WasmLiveView.NotesSqliteLive do
       />
     </div>
 
-    <div :if={@notes == []} class="text-base-content/50 italic">
+    <div :if={@shown_notes == []} class="text-base-content/50 italic">
       <%= if @search == "", do: "No notes yet. Create one above!", else: "No notes match this search." %>
     </div>
 
-    <div :for={note <- @notes} class="card card-border bg-base-100 mb-3">
+    <div :for={note <- @shown_notes} class="card card-border bg-base-100 mb-3">
       <div class="card-body p-4">
         <div class="flex justify-between items-start">
           <h3 class="card-title text-base">{note.title}</h3>
@@ -339,8 +392,8 @@ defmodule WasmLiveView.NotesSqliteLive do
   end
 
   # Colocated JS: SQLite + OPFS setup, extracted at compile time into the JS bundle.
-  # This runs once at page load (side-effect import) and sets window.__sqliteDB,
-  # window.__sqliteSave, and window.__notesSearchMode for run_js calls above.
+  # This runs once at page load (side-effect import) and sets window.__sqliteDB
+  # and window.__sqliteSave for the run_js calls above.
   def sqlite_setup(assigns) do
     ~H"""
     <script :type={Phoenix.LiveView.ColocatedJS}>
