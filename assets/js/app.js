@@ -8,47 +8,7 @@ import { hooks as colocatedHooks } from "phoenix-colocated/wasm_live_view";
 const BASE_URL = new URL("..", import.meta.url).href;
 const BASE_PATH = new URL(BASE_URL).pathname.replace(/\/$/, "");
 
-// JS Interop Demo hooks
 const Hooks = { ...colocatedHooks };
-
-// Ping hook: pushes an event to the server on mount, then every 3 seconds
-Hooks.Ping = {
-  mounted() {
-    this.send();
-    this.timer = setInterval(() => this.send(), 3000);
-  },
-  destroyed() {
-    clearInterval(this.timer);
-  },
-  send() {
-    this.pushEvent(
-      "hook-ping",
-      { msg: `ping at ${new Date().toLocaleTimeString()}` },
-      () => {},
-    );
-  },
-};
-
-// ColorSwatch hook: listens for push_event("set-color") from the server
-Hooks.ColorSwatch = {
-  mounted() {
-    this.handleEvent("set-color", ({ color }) => {
-      this.el.style.backgroundColor = color;
-    });
-  },
-};
-
-// FlashBox hook: listens for the custom "my-app:flash" DOM event and flashes yellow
-Hooks.FlashBox = {
-  mounted() {
-    this.el.addEventListener("my-app:flash", () => {
-      this.el.classList.add("!bg-warning", "text-warning-content");
-      setTimeout(() => {
-        this.el.classList.remove("!bg-warning", "text-warning-content");
-      }, 500);
-    });
-  },
-};
 
 async function setup() {
   console.log("[WasmLiveView] Initializing Popcorn...");

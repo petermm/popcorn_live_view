@@ -47,7 +47,7 @@ defmodule WasmLiveView.InteropDemoLive do
         A JS Hook calls <code>pushEvent("hook-ping")</code> on mount and every 3 s.
         The server appends each message to the log below.
       </p>
-      <div id="ping-hook" phx-hook="Ping"></div>
+      <div id="ping-hook" phx-hook=".Ping"></div>
       <div class="bg-base-200 rounded p-3 text-sm font-mono min-h-[80px]">
         <div :if={@hook_log == []}>waiting for first ping…</div>
         <div :for={entry <- @hook_log}>{entry}</div>
@@ -65,7 +65,7 @@ defmodule WasmLiveView.InteropDemoLive do
         <.button phx-click="push-color">Send random color</.button>
         <div
           id="color-swatch"
-          phx-hook="ColorSwatch"
+          phx-hook=".ColorSwatch"
           class="w-12 h-12 rounded-lg border border-base-300 transition-colors duration-300"
           style={"background-color: #{@random_color}"}
         >
@@ -89,12 +89,54 @@ defmodule WasmLiveView.InteropDemoLive do
       </div>
       <div
         id="js-box"
-        phx-hook="FlashBox"
+        phx-hook=".FlashBox"
         class="w-full h-20 bg-primary/20 border border-primary rounded-lg flex items-center justify-center font-semibold transition-colors duration-500"
       >
         I respond to JS commands &amp; custom DOM events
       </div>
     </section>
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".Ping">
+    export default {
+      mounted() {
+        this.send();
+        this.timer = setInterval(() => this.send(), 3000);
+      },
+      destroyed() {
+        clearInterval(this.timer);
+      },
+      send() {
+        this.pushEvent(
+          "hook-ping",
+          { msg: `ping at ${new Date().toLocaleTimeString()}` },
+          () => {},
+        );
+      },
+    };
+    </script>
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".ColorSwatch">
+    export default {
+      mounted() {
+        this.handleEvent("set-color", ({ color }) => {
+          this.el.style.backgroundColor = color;
+        });
+      },
+    };
+    </script>
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".FlashBox">
+    export default {
+      mounted() {
+        this.el.addEventListener("my-app:flash", () => {
+          this.el.classList.add("!bg-warning", "text-warning-content");
+          setTimeout(() => {
+            this.el.classList.remove("!bg-warning", "text-warning-content");
+          }, 500);
+        });
+      },
+    };
+    </script>
     """
   end
 end
