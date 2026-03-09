@@ -74,7 +74,8 @@ defmodule WasmLiveView.NotesSqliteLive do
   defp update_note(socket, note, params) do
     ts = :erlang.system_time(:second)
 
-    case Note.changeset(%{note | updated_at: ts}, params) |> Ecto.Changeset.apply_action(:update) do
+    case Note.changeset(%{note | updated_at: ts}, params)
+         |> Ecto.Changeset.apply_action(:update) do
       {:ok, updated} ->
         db_update(updated)
         notes = db_search(socket.assigns.search, db_list())
@@ -242,7 +243,7 @@ defmodule WasmLiveView.NotesSqliteLive do
   def render(assigns) do
     ~H"""
     <.header>
-      Notes (SQLite)
+      Notes (SQLite+Search)
       <:subtitle>
         SQLite via <code>sql.js</code>, persisted to OPFS — survives page reloads.
         The WASM process issues SQL directly via <code>Popcorn.Wasm.run_js/3</code>.
@@ -307,6 +308,94 @@ defmodule WasmLiveView.NotesSqliteLive do
         <p :if={note.body && note.body != ""} class="whitespace-pre-wrap">{note.body}</p>
       </div>
     </div>
+    """
+  end
+
+  # Colocated JS: SQLite + OPFS setup, extracted at compile time into the JS bundle.
+  # This runs once at page load (side-effect import) and sets window.__sqliteDB,
+  # window.__sqliteSave, and window.__notesSearchMode for run_js calls above.
+  def sqlite_setup(assigns) do
+    ~H"""
+    <script :type={Phoenix.LiveView.ColocatedJS}>
+    const BASE_URL = new URL("..", document.currentScript?.src || import.meta.url).href
+      || new URL(".", window.location.href).href;
+
+    async function opfsLoad() {
+      try {
+        const root = await navigator.storage.getDirectory();
+        const fh = await root.getFileHandle("popcorn_notes.sqlite");
+        const file = await fh.getFile();
+        return new Uint8Array(await file.arrayBuffer());
+      } catch {
+        return null;
+      }
+    }
+
+    async function opfsSave(db) {
+      const data = db.export();
+      const root = await navigator.storage.getDirectory();
+      const fh = await root.getFileHandle("popcorn_notes.sqlite", { create: true });
+      const writable = await fh.createWritable();
+      await writable.write(data);
+      await writable.close();
+    }
+
+    async function setupSQLite() {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = BASE_URL + "sql-wasm.js";
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+
+      const SQL = await window.initSqlJs({
+        locateFile: () => BASE_URL + "sql-wasm.wasm",
+      });
+
+      const existing = await opfsLoad();
+      const db = existing ? new SQL.Database(existing) : new SQL.Database();
+
+      db.run(`CREATE TABLE IF NOT EXISTS notes (
+        id INTEGER PRIMARY KEY,
+        title TEXT NOT NULL,
+        body TEXT,
+        inserted_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`);
+
+      let notesSearchMode = "like";
+      try {
+        db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts
+          USING fts5(title, body, content='notes', content_rowid='id')`);
+
+        db.run(`CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
+          INSERT INTO notes_fts(rowid, title, body) VALUES (new.id, new.title, coalesce(new.body, ''));
+        END`);
+
+        db.run(`CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
+          INSERT INTO notes_fts(notes_fts, rowid, title, body) VALUES ('delete', old.id, old.title, coalesce(old.body, ''));
+        END`);
+
+        db.run(`CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
+          INSERT INTO notes_fts(notes_fts, rowid, title, body) VALUES ('delete', old.id, old.title, coalesce(old.body, ''));
+          INSERT INTO notes_fts(rowid, title, body) VALUES (new.id, new.title, coalesce(new.body, ''));
+        END`);
+
+        db.run(`INSERT INTO notes_fts(notes_fts) VALUES ('rebuild')`);
+        notesSearchMode = "fts5";
+      } catch (err) {
+        console.warn("[WasmLiveView] FTS5 unavailable, using LIKE search fallback", err);
+      }
+
+      window.__sqliteDB = db;
+      window.__notesSearchMode = notesSearchMode;
+      window.__sqliteSave = () => opfsSave(db).catch(console.error);
+      console.log(`[WasmLiveView] SQLite ready, persisted via OPFS (search: ${notesSearchMode})`);
+    }
+
+    window.__sqliteReady = setupSQLite();
+    </script>
     """
   end
 end

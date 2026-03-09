@@ -18,7 +18,10 @@ config :esbuild,
       --external:/wasm/*
     ),
     cd: Path.expand("../assets", __DIR__),
-    env: %{"NODE_PATH" => Path.expand("../deps", __DIR__)}
+    env: %{
+      "NODE_PATH" =>
+        Path.expand("../deps", __DIR__) <> ":" <> Mix.Project.build_path()
+    }
   ]
 
 # Configure tailwind (the version is required)
