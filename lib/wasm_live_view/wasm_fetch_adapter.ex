@@ -12,7 +12,10 @@ defmodule WasmLiveView.WasmFetchAdapter do
 
     url = URI.to_string(request.url)
     method = request.method |> to_string() |> String.upcase()
-    headers = Enum.map(request.headers, fn {k, v} -> [k, v] end)
+    headers =
+      request.headers
+      |> Enum.reject(fn {k, _v} -> String.downcase(k) == "user-agent" end)
+      |> Enum.map(fn {k, v} -> [k, v] end)
     body = request.body || ""
 
     Wasm.run_js!(
