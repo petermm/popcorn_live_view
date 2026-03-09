@@ -99,14 +99,11 @@ defmodule WasmLiveView.NotesSqliteLive do
            ({ }) => {
              const db = window.__sqliteDB;
              if (!db) return [JSON.stringify([])];
-             const stmt = db.prepare("SELECT id, title, body, inserted_at, updated_at FROM notes ORDER BY inserted_at DESC");
-             const rows = [];
-             while (stmt.step()) {
-               const r = stmt.getAsObject();
-               rows.push(r);
-             }
-             stmt.free();
-             return [JSON.stringify(rows)];
+             return [JSON.stringify(
+               db.selectObjects(
+                 "SELECT id, title, body, inserted_at, updated_at FROM notes ORDER BY inserted_at DESC"
+               )
+             )];
            }
            """,
            %{},
@@ -138,34 +135,36 @@ defmodule WasmLiveView.NotesSqliteLive do
            ({ args }) => {
              const db = window.__sqliteDB;
              const searchMode = window.__notesSearchMode || "like";
-             let stmt;
-
-             if (searchMode === "fts5") {
-               stmt = db.prepare(
-                 `SELECT n.id, n.title, n.body, n.inserted_at, n.updated_at
-                  FROM notes n
-                  JOIN notes_fts ON notes_fts.rowid = n.id
-                  WHERE notes_fts MATCH ?
-                  ORDER BY bm25(notes_fts), n.inserted_at DESC`
-               );
-               stmt.bind([args.query]);
-             } else {
-               stmt = db.prepare(
+             const selectLikeRows = (query) => {
+               const needle = `%${query}%`;
+               return db.selectObjects(
                  `SELECT id, title, body, inserted_at, updated_at
                   FROM notes
                   WHERE lower(title) LIKE lower(?)
                      OR lower(coalesce(body, '')) LIKE lower(?)
-                  ORDER BY inserted_at DESC`
+                  ORDER BY inserted_at DESC`,
+                 [needle, needle]
                );
-               const needle = `%${args.query}%`;
-               stmt.bind([needle, needle]);
+             };
+             let rows;
+
+             if (searchMode === "fts5") {
+               try {
+                 rows = db.selectObjects(
+                   `SELECT n.id, n.title, n.body, n.inserted_at, n.updated_at
+                    FROM notes n
+                    JOIN notes_fts ON notes_fts.rowid = n.id
+                    WHERE notes_fts MATCH ?
+                    ORDER BY bm25(notes_fts), n.inserted_at DESC`,
+                   [args.query]
+                 );
+               } catch (_err) {
+                 rows = selectLikeRows(args.query);
+               }
+             } else {
+               rows = selectLikeRows(args.query);
              }
 
-             const rows = [];
-             while (stmt.step()) {
-               rows.push(stmt.getAsObject());
-             }
-             stmt.free();
              return [JSON.stringify(rows)];
            }
            """,
@@ -194,10 +193,10 @@ defmodule WasmLiveView.NotesSqliteLive do
     Popcorn.Wasm.run_js(
       """
       ({ args }) => {
-        window.__sqliteDB.run(
-          "INSERT INTO notes (title, body, inserted_at, updated_at) VALUES (?, ?, ?, ?)",
-          [args.title, args.body, args.inserted_at, args.updated_at]
-        );
+        window.__sqliteDB.exec({
+          sql: "INSERT INTO notes (title, body, inserted_at, updated_at) VALUES (?, ?, ?, ?)",
+          bind: [args.title, args.body, args.inserted_at, args.updated_at]
+        });
         window.__sqliteSave();
         return [];
       }
@@ -210,10 +209,10 @@ defmodule WasmLiveView.NotesSqliteLive do
     Popcorn.Wasm.run_js(
       """
       ({ args }) => {
-        window.__sqliteDB.run(
-          "UPDATE notes SET title = ?, body = ?, updated_at = ? WHERE id = ?",
-          [args.title, args.body, args.updated_at, args.id]
-        );
+        window.__sqliteDB.exec({
+          sql: "UPDATE notes SET title = ?, body = ?, updated_at = ? WHERE id = ?",
+          bind: [args.title, args.body, args.updated_at, args.id]
+        });
         window.__sqliteSave();
         return [];
       }
@@ -226,7 +225,10 @@ defmodule WasmLiveView.NotesSqliteLive do
     Popcorn.Wasm.run_js(
       """
       ({ args }) => {
-        window.__sqliteDB.run('DELETE FROM notes WHERE id = ?', [args.id]);
+        window.__sqliteDB.exec({
+          sql: "DELETE FROM notes WHERE id = ?",
+          bind: [args.id]
+        });
         window.__sqliteSave();
         return [];
       }
@@ -245,8 +247,8 @@ defmodule WasmLiveView.NotesSqliteLive do
     <.header>
       Notes (SQLite+Search)
       <:subtitle>
-        SQLite via <code>sql.js</code>, persisted to OPFS — survives page reloads.
-        The WASM process issues SQL directly via <code>Popcorn.Wasm.run_js/3</code>.
+        SQLite via <code>@sqlite.org/sqlite-wasm</code>, persisted to OPFS and queried
+        directly from the WASM process via <code>Popcorn.Wasm.run_js/3</code>.
       </:subtitle>
       <:actions>
         <span :if={@editing} class="text-sm text-base-content/50">Editing</span>
@@ -319,6 +321,8 @@ defmodule WasmLiveView.NotesSqliteLive do
     <script :type={Phoenix.LiveView.ColocatedJS}>
     const BASE_URL = new URL("..", document.currentScript?.src || import.meta.url).href
       || new URL(".", window.location.href).href;
+    const SQLITE_MODULE_URL = BASE_URL + "sqlite3.mjs";
+    const DB_FILENAME = "/popcorn_notes.sqlite";
 
     async function opfsLoad() {
       try {
@@ -332,7 +336,7 @@ defmodule WasmLiveView.NotesSqliteLive do
     }
 
     async function opfsSave(db) {
-      const data = db.export();
+      const data = window.__sqlite3.capi.sqlite3_js_db_export(db.pointer);
       const root = await navigator.storage.getDirectory();
       const fh = await root.getFileHandle("popcorn_notes.sqlite", { create: true });
       const writable = await fh.createWritable();
@@ -341,22 +345,17 @@ defmodule WasmLiveView.NotesSqliteLive do
     }
 
     async function setupSQLite() {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement("script");
-        s.src = BASE_URL + "sql-wasm.js";
-        s.onload = resolve;
-        s.onerror = reject;
-        document.head.appendChild(s);
-      });
-
-      const SQL = await window.initSqlJs({
-        locateFile: () => BASE_URL + "sql-wasm.wasm",
-      });
+      const { default: sqlite3InitModule } = await import(/* @vite-ignore */ SQLITE_MODULE_URL);
+      const sqlite3 = await sqlite3InitModule();
 
       const existing = await opfsLoad();
-      const db = existing ? new SQL.Database(existing) : new SQL.Database();
+      if (existing?.byteLength) {
+        sqlite3.capi.sqlite3_js_posix_create_file(DB_FILENAME, existing);
+      }
 
-      db.run(`CREATE TABLE IF NOT EXISTS notes (
+      const db = new sqlite3.oo1.DB(DB_FILENAME, existing?.byteLength ? "w" : "c");
+
+      db.exec(`CREATE TABLE IF NOT EXISTS notes (
         id INTEGER PRIMARY KEY,
         title TEXT NOT NULL,
         body TEXT,
@@ -366,32 +365,35 @@ defmodule WasmLiveView.NotesSqliteLive do
 
       let notesSearchMode = "like";
       try {
-        db.run(`CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts
+        db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts
           USING fts5(title, body, content='notes', content_rowid='id')`);
 
-        db.run(`CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
+        db.exec(`CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
           INSERT INTO notes_fts(rowid, title, body) VALUES (new.id, new.title, coalesce(new.body, ''));
         END`);
 
-        db.run(`CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
+        db.exec(`CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
           INSERT INTO notes_fts(notes_fts, rowid, title, body) VALUES ('delete', old.id, old.title, coalesce(old.body, ''));
         END`);
 
-        db.run(`CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
+        db.exec(`CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
           INSERT INTO notes_fts(notes_fts, rowid, title, body) VALUES ('delete', old.id, old.title, coalesce(old.body, ''));
           INSERT INTO notes_fts(rowid, title, body) VALUES (new.id, new.title, coalesce(new.body, ''));
         END`);
 
-        db.run(`INSERT INTO notes_fts(notes_fts) VALUES ('rebuild')`);
+        db.exec(`INSERT INTO notes_fts(notes_fts) VALUES ('rebuild')`);
         notesSearchMode = "fts5";
       } catch (err) {
         console.warn("[WasmLiveView] FTS5 unavailable, using LIKE search fallback", err);
       }
 
+      window.__sqlite3 = sqlite3;
       window.__sqliteDB = db;
       window.__notesSearchMode = notesSearchMode;
       window.__sqliteSave = () => opfsSave(db).catch(console.error);
-      console.log(`[WasmLiveView] SQLite ready, persisted via OPFS (search: ${notesSearchMode})`);
+      console.log(
+        `[WasmLiveView] SQLite ${sqlite3.version.libVersion} ready, persisted via OPFS (search: ${notesSearchMode})`
+      );
     }
 
     window.__sqliteReady = setupSQLite();
