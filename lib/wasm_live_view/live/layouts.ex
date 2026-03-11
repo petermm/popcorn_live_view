@@ -11,6 +11,7 @@ defmodule WasmLiveView.Layouts do
     %{path: @script_prefix <> "/streams", label: "Streams", key: :streams},
     %{path: @script_prefix <> "/eval", label: "Elixir eval", key: :eval},
     %{path: @script_prefix <> "/interop", label: "JS Interop", key: :interop},
+    %{path: @script_prefix <> "/video", label: "Video", key: :video},
     %{
       path: @script_prefix <> "/notes-persisted",
       label: "Notes (Persisted)",
