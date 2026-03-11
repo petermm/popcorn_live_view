@@ -21,7 +21,8 @@ defmodule WasmLiveView.VideoLive do
   end
 
   @impl true
-  def handle_event("video-command", %{"action" => action}, socket) when action in @video_actions do
+  def handle_event("video-command", %{"action" => action}, socket)
+      when action in @video_actions do
     {:noreply,
      socket
      |> assign(:play_blocked_message, nil)
@@ -38,7 +39,8 @@ defmodule WasmLiveView.VideoLive do
        player_muted: truthy?(params["muted"]),
        current_time_s: whole_seconds(params["current_time"]),
        duration_s: whole_seconds(params["duration"]),
-       play_blocked_message: if(player_playing, do: nil, else: socket.assigns.play_blocked_message)
+       play_blocked_message:
+         if(player_playing, do: nil, else: socket.assigns.play_blocked_message)
      )}
   end
 
@@ -58,7 +60,7 @@ defmodule WasmLiveView.VideoLive do
     <.header>
       Video
       <:subtitle>
-        Video.js v10 HTML player loaded from jsDelivr with a colocated LiveView hook.
+        Video.js v10 minimal player loaded from jsDelivr with a colocated LiveView hook.
       </:subtitle>
     </.header>
 
@@ -69,7 +71,7 @@ defmodule WasmLiveView.VideoLive do
       <div class="space-y-1">
         <h2 class="text-base font-semibold">Video.js v10 player</h2>
         <p class="text-sm text-base-content/70">
-          The page loads the HTML renderer at mount time, then upgrades the custom elements in place.
+          The page loads the minimal renderer at mount time, then upgrades the custom elements in place.
         </p>
       </div>
 
@@ -87,7 +89,7 @@ defmodule WasmLiveView.VideoLive do
           Loading player...
         </div>
         <video-player class="block aspect-video w-full">
-          <video-skin>
+          <video-minimal-skin>
             <video
               slot="media"
               src={player_src}
@@ -95,7 +97,7 @@ defmodule WasmLiveView.VideoLive do
               playsinline
             >
             </video>
-          </video-skin>
+          </video-minimal-skin>
         </video-player>
       </div>
 
@@ -188,17 +190,17 @@ defmodule WasmLiveView.VideoLive do
 
       <p class="text-xs text-base-content/60">
         Source: Mux demo stream. Runtime assets:
-        <code>@videojs/html/cdn/video.js</code>
+        <code>@videojs/html/cdn/video-minimal.js</code>
         and
-        <code>@videojs/html/cdn/video.css</code>.
+        <code>@videojs/html/cdn/video-minimal.css</code>.
       </p>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".VideoPlayer">
       const VIDEO_JS_HTML_CDN =
-        "https://cdn.jsdelivr.net/npm/@videojs/html/cdn/video.js";
+        "https://cdn.jsdelivr.net/npm/@videojs/html/cdn/video-minimal.js";
       const VIDEO_JS_CSS_CDN =
-        "https://cdn.jsdelivr.net/npm/@videojs/html/cdn/video.css";
-      const VIDEO_JS_CSS_ID = "videojs-html-cdn-css";
+        "https://cdn.jsdelivr.net/npm/@videojs/html/cdn/video-minimal.css";
+      const VIDEO_JS_CSS_ID = "videojs-html-cdn-minimal-css";
 
       function ensureVideoJsStylesheet() {
         let link = document.getElementById(VIDEO_JS_CSS_ID);
@@ -232,7 +234,7 @@ defmodule WasmLiveView.VideoLive do
           this.videoEl = null;
           this.videoListeners = [];
           this.lastStateKey = null;
-          this.setStatus("Loading Video.js v10...", [
+          this.setStatus("Loading Video.js v10 minimal...", [
             "badge-neutral",
             "bg-black/70",
             "text-white",
