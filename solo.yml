@@ -1,0 +1,10 @@
+name: popcorn_live_view
+icon: null
+processes:
+  start dev_server:
+    command: mise exec -- elixir server.exs
+    working_dir: null
+    auto_start: true
+    auto_restart: false
+    restart_when_changed: []
+    env: {}
