@@ -132,6 +132,16 @@ defmodule WasmLiveView.EsptoolLive do
             >
               {if @packing, do: "Packing AVM...", else: "Flash to Device & Monitor"}
             </button>
+            <button
+              data-role="serial-monitor-only"
+              data-idle-label="Serial Monitor"
+              data-active-label="Stop Serial Monitor"
+              data-busy-label="Opening Monitor..."
+              class="btn btn-sm btn-outline"
+              type="button"
+            >
+              Serial Monitor
+            </button>
           </div>
         </div>
       </div>
@@ -174,6 +184,19 @@ defmodule WasmLiveView.EsptoolLive do
         this.monitorReader = null;
         this.monitorStopRequested = false;
         this.monitorTask = null;
+        this.monitorOpening = false;
+        this.serialMonitorButton = this.el.querySelector(
+          '[data-role="serial-monitor-only"]'
+        );
+        this.monitorClickHandler = async (event) => {
+          event.preventDefault();
+          await this._handleSerialMonitorClick();
+        };
+
+        if (this.serialMonitorButton) {
+          this.serialMonitorButton.addEventListener("click", this.monitorClickHandler);
+          this._syncSerialMonitorButton();
+        }
 
         try {
           const mod = await import(/* @vite-ignore */ ESP32TOOL_CDN);
@@ -337,7 +360,65 @@ defmodule WasmLiveView.EsptoolLive do
       },
 
       destroyed() {
+        if (this.serialMonitorButton && this.monitorClickHandler) {
+          this.serialMonitorButton.removeEventListener("click", this.monitorClickHandler);
+        }
+
         this._stopMonitor({ closePort: true, quiet: true });
+      },
+
+      async _handleSerialMonitorClick() {
+        if (this.flashInProgress) {
+          this._appendSerialOutput(
+            "[monitor] Wait for the current flash operation to finish first."
+          );
+          return;
+        }
+
+        if (this.monitorReader || this.monitorTask) {
+          await this._stopMonitor({ closePort: true });
+          return;
+        }
+
+        this.monitorOpening = true;
+        this._syncSerialMonitorButton();
+
+        try {
+          const port = await this._requestMonitorPort();
+          await this._startMonitor(port);
+        } catch (err) {
+          if (err?.name === "NotFoundError") {
+            this._appendSerialOutput("[monitor] Serial monitor selection cancelled.");
+          } else {
+            console.error("[EsptoolActions] monitor open failed:", err);
+            this._appendSerialOutput(
+              `[monitor] Could not start serial monitor: ${String(err)}`
+            );
+          }
+        } finally {
+          this.monitorOpening = false;
+          this._syncSerialMonitorButton();
+        }
+      },
+
+      async _requestMonitorPort() {
+        if (this.selectedPort) {
+          return this.selectedPort;
+        }
+
+        const requestSerialPort = globalThis.requestSerialPort;
+
+        if (typeof requestSerialPort === "function") {
+          return await requestSerialPort();
+        }
+
+        if (!navigator.serial?.requestPort) {
+          throw new Error(
+            "Web Serial API is not supported in this browser."
+          );
+        }
+
+        return await navigator.serial.requestPort();
       },
 
       async _connectLoader() {
@@ -377,6 +458,7 @@ defmodule WasmLiveView.EsptoolLive do
         this.monitorPort = port;
         this.monitorStopRequested = false;
         this.monitorDecoder = new TextDecoder();
+        this._syncSerialMonitorButton();
 
         const reader = port.readable.getReader();
         this.monitorReader = reader;
@@ -427,6 +509,7 @@ defmodule WasmLiveView.EsptoolLive do
 
             this.monitorTask = null;
             this.monitorStopRequested = false;
+            this._syncSerialMonitorButton();
           }
         })();
       },
@@ -468,6 +551,7 @@ defmodule WasmLiveView.EsptoolLive do
         }
 
         this.monitorPort = closePort ? null : port;
+        this._syncSerialMonitorButton();
       },
 
       _appendSerialOutput(text) {
@@ -507,6 +591,23 @@ defmodule WasmLiveView.EsptoolLive do
             ? button.dataset.busyLabel || "Flashing Device..."
             : button.dataset.idleLabel || "Flash to Device";
         }
+
+        this._syncSerialMonitorButton();
+      },
+
+      _syncSerialMonitorButton() {
+        if (!this.serialMonitorButton) return;
+
+        const active = !!(this.monitorReader || this.monitorTask);
+        const busy = this.flashInProgress || this.monitorOpening;
+
+        this.serialMonitorButton.disabled = busy;
+        this.serialMonitorButton.classList.toggle("btn-disabled", busy);
+        this.serialMonitorButton.textContent = busy
+          ? this.serialMonitorButton.dataset.busyLabel || "Opening Monitor..."
+          : active
+            ? this.serialMonitorButton.dataset.activeLabel || "Stop Serial Monitor"
+            : this.serialMonitorButton.dataset.idleLabel || "Serial Monitor";
       },
 
       _toUint8Array(bytes) {
