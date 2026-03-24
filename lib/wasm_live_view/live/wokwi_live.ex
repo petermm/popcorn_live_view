@@ -22,21 +22,22 @@ defmodule WasmLiveView.WokwiLive do
   @code_examples %{
     "blinky" => """
     -module(blinky).
+    -define(LED_PIN, 2).
     -export([start/0]).
 
     start() ->
         GPIO = gpio:open(),
         io:format("Hello World!~n"),
-        gpio:set_direction(GPIO, 2, output),
+        gpio:set_direction(GPIO, ?LED_PIN, output),
         loop(GPIO, off).
 
     loop(GPIO, off) ->
-        gpio:set_level(GPIO, 2, 0),
+        gpio:set_level(GPIO, ?LED_PIN, 0),
         timer:sleep(500),
         io:format("ON~n~n"),
         loop(GPIO, on);
     loop(GPIO, on) ->
-        gpio:set_level(GPIO, 2, 1),
+        gpio:set_level(GPIO, ?LED_PIN, 1),
         timer:sleep(500),
         io:format("OFF~n~n"),
         loop(GPIO, off).
