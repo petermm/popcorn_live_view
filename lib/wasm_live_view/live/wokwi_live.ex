@@ -146,8 +146,15 @@ defmodule WasmLiveView.WokwiLive do
 
   @impl true
   def handle_event("select-example", %{"example" => example}, socket) do
-    code = Map.fetch!(@code_examples, example)
-    {:noreply, assign(socket, current_example: example, code: code, start_module: example)}
+    code_examples = Map.get(socket.assigns, :code_examples, @code_examples)
+
+    case Map.fetch(code_examples, example) do
+      {:ok, code} ->
+        {:noreply, assign(socket, current_example: example, code: code, start_module: example)}
+
+      :error ->
+        {:noreply, socket}
+    end
   end
 
   @impl true
@@ -163,6 +170,17 @@ defmodule WasmLiveView.WokwiLive do
   @impl true
   def handle_event("clear-output", _params, socket) do
     {:noreply, assign(socket, :output, "")}
+  end
+
+  @impl true
+  def handle_event("format-code", _params, socket) do
+    case WasmLiveView.EvalInWasm.format_erlang(socket.assigns.code) do
+      {:ok, formatted} ->
+        {:noreply, assign(socket, code: formatted)}
+
+      {:error, reason} ->
+        {:noreply, update(socket, :output, &(&1 <> "\n[format error] " <> reason <> "\n"))}
+    end
   end
 
   @impl true
@@ -262,15 +280,35 @@ defmodule WasmLiveView.WokwiLive do
                  <% end %>
                </div>
              </div>
-             <form phx-change="code-changed" class="flex flex-col flex-1 min-h-0">
-              <textarea
-                 name="code"
-                 class="textarea textarea-bordered font-mono text-xs w-full flex-1 min-h-0"
-                 style="resize: none; height: 100%;"
-                phx-debounce="500"
-              >{@code}</textarea>
+            <form phx-change="code-changed" class="flex flex-col flex-1 min-h-0">
+              <div
+                id="wokwi-code-editor"
+                phx-hook="ErlangCodeEditor"
+                class="flex flex-col flex-1 min-h-0"
+              >
+                <div
+                  id="wokwi-code-editor-root"
+                  data-role="editor-root"
+                  phx-update="ignore"
+                  class="erlang-code-editor hidden w-full flex-1 min-h-0"
+                >
+                </div>
+                <textarea
+                  name="code"
+                  class="textarea textarea-bordered erlang-code-editor-textarea font-mono text-xs w-full flex-1 min-h-0"
+                  style="resize: none; height: 100%;"
+                  phx-debounce="500"
+                >{@code}</textarea>
+              </div>
             </form>
             <div class="flex justify-end gap-2 mt-2">
+              <button
+                class={["btn btn-sm btn-outline", if(@packing, do: "btn-disabled")]}
+                disabled={@packing}
+                phx-click="format-code"
+              >
+                Format Erlang
+              </button>
               <button
                 class={["btn btn-sm btn-ghost", if(@packing, do: "btn-disabled")]}
                 disabled={@packing}

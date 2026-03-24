@@ -20,6 +20,14 @@ defmodule WasmLiveView.EvalInWasm do
     compile_erlang(List.to_string(code))
   end
 
+  def format_erlang(code) when is_binary(code) do
+    GenServer.call(@process_name, {:format_erlang, code}, 15_000)
+  end
+
+  def format_erlang(code) when is_list(code) do
+    format_erlang(List.to_string(code))
+  end
+
   def debug_pack do
     GenServer.call(@process_name, :debug_pack, 15_000)
   end
@@ -118,18 +126,18 @@ defmodule WasmLiveView.EvalInWasm do
     end
   end
 
-  defp do_eval(code, :elixir) do
-    {:ok, string_io} = StringIO.open("")
-    original_gl = :erlang.group_leader()
-    :erlang.group_leader(string_io, self())
-
+  def handle_call({:format_erlang, code}, _from, state) do
     try do
-      {value, _bindings} = Code.eval_string(code, [], __ENV__)
-      {_input, output} = StringIO.contents(string_io)
-      {value, output}
-    after
-      :erlang.group_leader(original_gl, self())
-      StringIO.close(string_io)
+      {:reply, {:ok, do_format_erlang(code)}, state}
+    rescue
+      e in RuntimeError ->
+        {:reply, {:error, e.message}, state}
+
+      e ->
+        {:reply, {:error, inspect(e)}, state}
+    catch
+      kind, reason ->
+        {:reply, {:error, "#{kind}: #{inspect(reason)}"}, state}
     end
   end
 
@@ -325,10 +333,24 @@ defmodule WasmLiveView.EvalInWasm do
   # --- Erlang compiler ---
 
   defp do_compile_erlang(code) do
-    code_list = :unicode.characters_to_list(code, :utf8) ++ ~c"\n"
-    forms = scan_and_parse_forms(code_list, {1, 1})
+    forms = parse_erlang_forms(code)
     {:ok, module, module_bin} = :compile.forms(forms, [])
     [{Atom.to_charlist(module) ++ ~c".beam", module_bin}]
+  end
+
+  defp do_format_erlang(code) do
+    code
+    |> parse_erlang_forms()
+    |> Enum.map_join("", fn form -> IO.iodata_to_binary(:erl_pp.form(form)) end)
+    |> String.trim_trailing()
+    |> Kernel.<>("\n")
+  end
+
+  defp parse_erlang_forms(code) do
+    code
+    |> :unicode.characters_to_list(:utf8)
+    |> Kernel.++(~c"\n")
+    |> scan_and_parse_forms({1, 1})
   end
 
   defp scan_and_parse_forms(remaining, loc) do
@@ -342,6 +364,21 @@ defmodule WasmLiveView.EvalInWasm do
 
       {:more, _} ->
         []
+    end
+  end
+
+  defp do_eval(code, :elixir) do
+    {:ok, string_io} = StringIO.open("")
+    original_gl = :erlang.group_leader()
+    :erlang.group_leader(string_io, self())
+
+    try do
+      {value, _bindings} = Code.eval_string(code, [], __ENV__)
+      {_input, output} = StringIO.contents(string_io)
+      {value, output}
+    after
+      :erlang.group_leader(original_gl, self())
+      StringIO.close(string_io)
     end
   end
 

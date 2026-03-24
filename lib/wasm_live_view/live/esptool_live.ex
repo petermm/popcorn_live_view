@@ -122,14 +122,34 @@ defmodule WasmLiveView.EsptoolLive do
             </div>
           </div>
           <form phx-change="code-changed" class="flex flex-col flex-1 min-h-0">
-            <textarea
-              name="code"
-              class="textarea textarea-bordered font-mono text-xs w-full flex-1 min-h-0"
-              style="resize: none; height: 100%;"
-              phx-debounce="500"
-            >{@code}</textarea>
+            <div
+              id="esptool-code-editor"
+              phx-hook="ErlangCodeEditor"
+              class="flex flex-col flex-1 min-h-0"
+            >
+              <div
+                id="esptool-code-editor-root"
+                data-role="editor-root"
+                phx-update="ignore"
+                class="erlang-code-editor hidden w-full flex-1 min-h-0"
+              >
+              </div>
+              <textarea
+                name="code"
+                class="textarea textarea-bordered erlang-code-editor-textarea font-mono text-xs w-full flex-1 min-h-0"
+                style="resize: none; height: 100%;"
+                phx-debounce="500"
+              >{@code}</textarea>
+            </div>
           </form>
           <div class="flex justify-end gap-2 mt-2">
+            <button
+              class={["btn btn-sm btn-outline", if(@packing, do: "btn-disabled")]}
+              disabled={@packing}
+              phx-click="format-code"
+            >
+              Format Erlang
+            </button>
             <button
               class={["btn btn-sm btn-ghost", if(@packing, do: "btn-disabled")]}
               disabled={@packing}

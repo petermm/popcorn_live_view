@@ -103,3 +103,149 @@
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
 /* This file is for your main application CSS */
+
+.erlang-editor-hidden {
+  display: none;
+}
+
+.erlang-code-editor,
+.erlang-code-editor-textarea {
+  --editor-bg: #0f1724;
+  --editor-gutter-bg: #0b111b;
+  --editor-border: #273246;
+  --editor-border-strong: #5c7cfa;
+  --editor-text: #d8e2f0;
+  --editor-muted: #7f8ca1;
+  --editor-selection: rgb(92 124 250 / 28%);
+  --editor-cursor: #9cc3ff;
+  --editor-shadow: rgb(0 0 0 / 28%);
+}
+
+.erlang-code-editor {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  border-radius: max(var(--radius-box), 0.75rem);
+  border: 1px solid var(--editor-border);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 2%), transparent 18%),
+    var(--editor-bg);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 4%),
+    0 18px 40px -24px var(--editor-shadow);
+}
+
+.erlang-code-editor .CodeMirror,
+.erlang-code-editor-textarea {
+  height: 100%;
+  font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--editor-text);
+  background: transparent;
+}
+
+.erlang-code-editor-textarea {
+  resize: none;
+  border: 1px solid var(--editor-border);
+  border-radius: max(var(--radius-box), 0.75rem);
+  padding: 0.875rem 1rem;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 2%), transparent 18%),
+    var(--editor-bg);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 4%),
+    0 18px 40px -24px var(--editor-shadow);
+  caret-color: var(--editor-cursor);
+}
+
+.erlang-code-editor-textarea::selection {
+  background: var(--editor-selection);
+}
+
+.erlang-code-editor-textarea:focus {
+  outline: 2px solid var(--editor-border-strong);
+  outline-offset: 0;
+  border-color: var(--editor-border-strong);
+}
+
+.erlang-code-editor .CodeMirror-focused {
+  outline: 2px solid var(--editor-border-strong);
+  outline-offset: -2px;
+}
+
+.erlang-code-editor .CodeMirror-gutters {
+  border-right: 1px solid var(--editor-border);
+  background: var(--editor-gutter-bg);
+  color: var(--editor-muted);
+}
+
+.erlang-code-editor .CodeMirror-linenumber {
+  color: var(--editor-muted);
+}
+
+.erlang-code-editor .CodeMirror-lines {
+  padding: 0.875rem 0;
+}
+
+.erlang-code-editor .CodeMirror pre.CodeMirror-line,
+.erlang-code-editor .CodeMirror pre.CodeMirror-line-like {
+  padding: 0 1rem;
+}
+
+.erlang-code-editor .CodeMirror-cursor {
+  border-left: 2px solid var(--editor-cursor);
+}
+
+.erlang-code-editor .CodeMirror-selected,
+.erlang-code-editor .CodeMirror-focused .CodeMirror-selected {
+  background: var(--editor-selection);
+}
+
+.erlang-code-editor .cm-s-atomvm-dark.CodeMirror {
+  color: var(--editor-text);
+  background: transparent;
+}
+
+.erlang-code-editor .cm-s-atomvm-dark .cm-comment {
+  color: #63738d;
+  font-style: italic;
+}
+
+.erlang-code-editor .cm-s-atomvm-dark .cm-keyword,
+.erlang-code-editor .cm-s-atomvm-dark .cm-meta,
+.erlang-code-editor .cm-s-atomvm-dark .cm-operator {
+  color: #84a9ff;
+}
+
+.erlang-code-editor .cm-s-atomvm-dark .cm-atom,
+.erlang-code-editor .cm-s-atomvm-dark .cm-number {
+  color: #ff9671;
+}
+
+.erlang-code-editor .cm-s-atomvm-dark .cm-string {
+  color: #f1c27d;
+}
+
+.erlang-code-editor .cm-s-atomvm-dark .cm-builtin,
+.erlang-code-editor .cm-s-atomvm-dark .cm-tag {
+  color: #78dcca;
+}
+
+.erlang-code-editor .cm-s-atomvm-dark .cm-def,
+.erlang-code-editor .cm-s-atomvm-dark .cm-variable,
+.erlang-code-editor .cm-s-atomvm-dark .cm-variable-2,
+.erlang-code-editor .cm-s-atomvm-dark .cm-variable-3,
+.erlang-code-editor .cm-s-atomvm-dark .cm-bracket {
+  color: var(--editor-text);
+}
+
+.erlang-code-editor .cm-s-atomvm-dark .cm-property,
+.erlang-code-editor .cm-s-atomvm-dark .cm-qualifier {
+  color: #c6a0ff;
+}
+
+.erlang-code-editor .cm-s-atomvm-dark .cm-error {
+  color: #ff8ea1;
+  background: rgb(255 142 161 / 10%);
+}

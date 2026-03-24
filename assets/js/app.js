@@ -2,13 +2,17 @@ import "phoenix_html";
 import { Socket } from "phoenix";
 import { LiveSocket } from "phoenix_live_view";
 import PopcornTransport from "./popcorn_transport.js";
+import { ErlangCodeEditor } from "./erlang_code_editor.js";
 import { hooks as colocatedHooks } from "phoenix-colocated/wasm_live_view";
 
 // Derive site root from app.js location (handles GitHub Pages subpath).
 const BASE_URL = new URL("..", import.meta.url).href;
 const BASE_PATH = new URL(BASE_URL).pathname.replace(/\/$/, "");
 
-const Hooks = { ...colocatedHooks };
+const Hooks = {
+  ...colocatedHooks,
+  ErlangCodeEditor,
+};
 
 async function setup() {
   console.log("[WasmLiveView] Initializing Popcorn...");
