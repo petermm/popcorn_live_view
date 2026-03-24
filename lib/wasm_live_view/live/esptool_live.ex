@@ -3,16 +3,36 @@ defmodule WasmLiveView.EsptoolLive do
 
   @flash_address 0x210000
   @default_flash_mode :flash_only
+  @default_example "hello_world"
+  @hello_world_example """
+  -module(hello_world).
+  -export([start/0]).
+
+  start() ->
+      io:format("Hello World from AtomVM on ESP32!~n"),
+      loop(1).
+
+  loop(Count) ->
+      io:format("Loop ~p: ESP32 serial output is alive.~n", [Count]),
+      timer:sleep(1000),
+      loop(Count + 1).
+  """
 
   @impl true
   def mount(params, session, socket) do
     case WasmLiveView.WokwiLive.mount(params, session, socket) do
       {:ok, socket} ->
+        code_examples = esptool_code_examples()
+
         {:ok,
          assign(socket,
            current_route: :esptool,
            screen_title: "ESPTool ESP32 AtomVM",
-           flash_mode: @default_flash_mode
+           flash_mode: @default_flash_mode,
+           current_example: @default_example,
+           code_examples: code_examples,
+           code: Map.fetch!(code_examples, @default_example),
+           start_module: @default_example
          )}
 
       other ->
@@ -59,6 +79,11 @@ defmodule WasmLiveView.EsptoolLive do
   end
 
   def handle_info(message, socket), do: WasmLiveView.WokwiLive.handle_info(message, socket)
+
+  defp esptool_code_examples do
+    WasmLiveView.WokwiLive.code_examples()
+    |> Map.put(@default_example, @hello_world_example)
+  end
 
   @impl true
   def render(assigns) do

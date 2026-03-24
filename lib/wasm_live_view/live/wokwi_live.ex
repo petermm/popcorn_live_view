@@ -121,6 +121,8 @@ defmodule WasmLiveView.WokwiLive do
     """
   }
 
+  def code_examples, do: @code_examples
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
