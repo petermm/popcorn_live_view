@@ -150,7 +150,18 @@ defmodule WasmLiveView.EsptoolLive do
         <div class="card-body p-4 flex flex-col min-h-0">
           <div class="flex items-center justify-between mb-2">
             <h2 class="card-title text-sm">Serial Monitor</h2>
-            <button class="btn btn-xs btn-ghost" phx-click="clear-output">Clear</button>
+            <div class="flex items-center gap-2">
+              <button
+                data-role="reset-esp32"
+                data-idle-label="Reset ESP32"
+                data-busy-label="Resetting..."
+                class="btn btn-xs btn-warning"
+                type="button"
+              >
+                Reset ESP32
+              </button>
+              <button class="btn btn-xs btn-ghost" phx-click="clear-output">Clear</button>
+            </div>
           </div>
           <div
             id="esptool-serial-output"
@@ -188,14 +199,25 @@ defmodule WasmLiveView.EsptoolLive do
         this.serialMonitorButton = this.el.querySelector(
           '[data-role="serial-monitor-only"]'
         );
+        this.resetEsp32Button = this.el.querySelector('[data-role="reset-esp32"]');
+        this.resetInProgress = false;
         this.monitorClickHandler = async (event) => {
           event.preventDefault();
           await this._handleSerialMonitorClick();
+        };
+        this.resetClickHandler = async (event) => {
+          event.preventDefault();
+          await this._handleResetEsp32Click();
         };
 
         if (this.serialMonitorButton) {
           this.serialMonitorButton.addEventListener("click", this.monitorClickHandler);
           this._syncSerialMonitorButton();
+        }
+
+        if (this.resetEsp32Button) {
+          this.resetEsp32Button.addEventListener("click", this.resetClickHandler);
+          this._syncResetButton();
         }
 
         try {
@@ -364,11 +386,15 @@ defmodule WasmLiveView.EsptoolLive do
           this.serialMonitorButton.removeEventListener("click", this.monitorClickHandler);
         }
 
+        if (this.resetEsp32Button && this.resetClickHandler) {
+          this.resetEsp32Button.removeEventListener("click", this.resetClickHandler);
+        }
+
         this._stopMonitor({ closePort: true, quiet: true });
       },
 
       async _handleSerialMonitorClick() {
-        if (this.flashInProgress) {
+        if (this.flashInProgress || this.resetInProgress) {
           this._appendSerialOutput(
             "[monitor] Wait for the current flash operation to finish first."
           );
@@ -398,6 +424,81 @@ defmodule WasmLiveView.EsptoolLive do
         } finally {
           this.monitorOpening = false;
           this._syncSerialMonitorButton();
+        }
+      },
+
+      async _handleResetEsp32Click() {
+        if (this.flashInProgress || this.monitorOpening || this.resetInProgress) {
+          this._appendSerialOutput(
+            "[esptool] Wait for the current serial operation to finish first."
+          );
+          return;
+        }
+
+        if (!this.selectedPort) {
+          this._appendSerialOutput(
+            "[esptool] Connect to the ESP32 first before sending reset."
+          );
+          return;
+        }
+
+        if (!this.esp32tool?.connectWithPort) {
+          this._appendSerialOutput(
+            "[esptool] esp32tool reset support is not loaded yet."
+          );
+          return;
+        }
+
+        const port = this.selectedPort;
+        const wasMonitoring = !!(this.monitorReader || this.monitorTask);
+
+        this.resetInProgress = true;
+        this._syncSerialMonitorButton();
+        this._syncResetButton();
+        this._appendSerialOutput("[esptool] Sending reset to ESP32...");
+
+        try {
+          if (wasMonitoring) {
+            await this._stopMonitor({ closePort: false, quiet: true });
+          }
+
+          const loader = await this.esp32tool.connectWithPort(
+            port,
+            this._buildLogger()
+          );
+
+          if (typeof loader.resetInConsoleMode === "function") {
+            await loader.resetInConsoleMode();
+          } else if (typeof loader.hardResetToFirmware === "function") {
+            await loader.hardResetToFirmware();
+          } else {
+            throw new Error("esp32tool reset support is unavailable.");
+          }
+
+          this._appendSerialOutput("[esptool] Reset command sent.");
+
+          if (wasMonitoring) {
+            await this._delay(250);
+            await this._startMonitor(port);
+          }
+        } catch (err) {
+          console.error("[EsptoolActions] reset failed:", err);
+          this._appendSerialOutput(`[esptool] Reset failed: ${String(err)}`);
+
+          if (wasMonitoring) {
+            try {
+              await this._startMonitor(port);
+            } catch (monitorErr) {
+              console.error("[EsptoolActions] monitor resume failed:", monitorErr);
+              this._appendSerialOutput(
+                `[monitor] Could not resume serial monitor after reset failure: ${String(monitorErr)}`
+              );
+            }
+          }
+        } finally {
+          this.resetInProgress = false;
+          this._syncSerialMonitorButton();
+          this._syncResetButton();
         }
       },
 
@@ -459,6 +560,7 @@ defmodule WasmLiveView.EsptoolLive do
         this.monitorStopRequested = false;
         this.monitorDecoder = new TextDecoder();
         this._syncSerialMonitorButton();
+        this._syncResetButton();
 
         const reader = port.readable.getReader();
         this.monitorReader = reader;
@@ -552,6 +654,7 @@ defmodule WasmLiveView.EsptoolLive do
 
         this.monitorPort = closePort ? null : port;
         this._syncSerialMonitorButton();
+        this._syncResetButton();
       },
 
       _appendSerialOutput(text) {
@@ -593,13 +696,14 @@ defmodule WasmLiveView.EsptoolLive do
         }
 
         this._syncSerialMonitorButton();
+        this._syncResetButton();
       },
 
       _syncSerialMonitorButton() {
         if (!this.serialMonitorButton) return;
 
         const active = !!(this.monitorReader || this.monitorTask);
-        const busy = this.flashInProgress || this.monitorOpening;
+        const busy = this.flashInProgress || this.monitorOpening || this.resetInProgress;
 
         this.serialMonitorButton.disabled = busy;
         this.serialMonitorButton.classList.toggle("btn-disabled", busy);
@@ -608,6 +712,23 @@ defmodule WasmLiveView.EsptoolLive do
           : active
             ? this.serialMonitorButton.dataset.activeLabel || "Stop Serial Monitor"
             : this.serialMonitorButton.dataset.idleLabel || "Serial Monitor";
+      },
+
+      _syncResetButton() {
+        if (!this.resetEsp32Button) return;
+
+        const busy = this.flashInProgress || this.monitorOpening || this.resetInProgress;
+        const enabled = !!this.selectedPort && !busy;
+
+        this.resetEsp32Button.disabled = !enabled;
+        this.resetEsp32Button.classList.toggle("btn-disabled", !enabled);
+        this.resetEsp32Button.textContent = this.resetInProgress
+          ? this.resetEsp32Button.dataset.busyLabel || "Resetting..."
+          : this.resetEsp32Button.dataset.idleLabel || "Reset ESP32";
+      },
+
+      _delay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
       },
 
       _toUint8Array(bytes) {
