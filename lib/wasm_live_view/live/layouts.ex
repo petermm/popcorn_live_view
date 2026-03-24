@@ -12,7 +12,11 @@ defmodule WasmLiveView.Layouts do
     %{path: @script_prefix <> "/eval", label: "Elixir eval", key: :eval},
     %{path: @script_prefix <> "/interop", label: "JS Interop", key: :interop},
     %{path: @script_prefix <> "/video", label: "Video", key: :video},
-    %{path: @script_prefix <> "/background-video", label: "Background Video", key: :background_video},
+    %{
+      path: @script_prefix <> "/background-video",
+      label: "Background Video",
+      key: :background_video
+    },
     %{
       path: @script_prefix <> "/notes-persisted",
       label: "Notes (Persisted)",
@@ -25,7 +29,6 @@ defmodule WasmLiveView.Layouts do
     %{path: @script_prefix <> "/regex-tester", label: "RegexTester", key: :regex_tester},
     %{path: @script_prefix <> "/runtime-stats", label: "Runtime Stats", key: :runtime_stats},
     %{path: @script_prefix <> "/iex", label: "IEX", key: :iex},
-    %{path: @script_prefix <> "/wokwi", label: "Wokwi", key: :wokwi},
     %{path: @script_prefix <> "/esptool", label: "ESPTool", key: :esptool}
   ]
 

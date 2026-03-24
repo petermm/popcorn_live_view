@@ -23,7 +23,7 @@ defmodule WasmLiveView.MixProject do
   defp deps do
     [
       {:easel, github: "petermm/easel", runtime: false},
-      {:popcorn, github: "SteffenDE/popcorn", branch: "sd-lv"},
+      {:popcorn, "~> 0.2.2"},
       # {:popcorn, path: "../popcorn"},
       {:atomvm_packbeam,
        github: "petermm/atomvm_packbeam", branch: "atomvm-compat", runtime: false},
@@ -73,25 +73,17 @@ defmodule WasmLiveView.MixProject do
     Mix.Task.run("tailwind", ["wasm_live_view"])
     Mix.Task.run("esbuild", ["wasm_live_view"])
 
-    # 1. Compile stub modules and write their .beam files
-    stub_modules = compile_stubs()
-    stub_module_set = MapSet.new(stub_modules, fn {mod, _} -> "#{mod}" end)
-
-    # 2. Collect beams from runtime: false deps, excluding those overridden by stubs
-    dep_beams =
-      ~w[phoenix phoenix_live_view phoenix_html phoenix_template phoenix_ecto ecto plug req mime easel atomvm_packbeam extty]
-      |> Enum.flat_map(fn dep ->
-        Path.wildcard(Path.join([Mix.Project.build_path(), "lib", dep, "ebin", "*.beam"]))
-      end)
-      |> Enum.reject(fn beam_path ->
-        module_name = Path.basename(beam_path, ".beam")
-        MapSet.member?(stub_module_set, module_name)
-      end)
-
-    # 3. Add stub beams
+    # Popcorn 0.2.x already bundles deps from _build/lib/*/ebin.
+    # Only add our custom stubs here to avoid duplicating dependency beams.
+    compile_stubs()
     stub_beams = Path.wildcard(Path.join([@stubs_out, "*.beam"]))
 
-    Popcorn.cook(extra_beams: dep_beams ++ stub_beams)
+    Popcorn.cook(
+      extra_beams: stub_beams,
+      include_vm: true
+    )
+
+    patch_popcorn_iframe_casts!()
   end
 
   defp compile_stubs do
@@ -130,5 +122,70 @@ defmodule WasmLiveView.MixProject do
       end
 
     ex_modules ++ erl_modules
+  end
+
+  defp patch_popcorn_iframe_casts! do
+    path = Path.join(["static", "wasm", "popcorn_iframe.js"])
+    source = File.read!(path)
+
+    source =
+      source
+      |> patch_iframe_cast_listener()
+      |> patch_iframe_cast_handler()
+
+    File.write!(path, source)
+    gzip_asset!(path)
+  end
+
+  defp patch_iframe_cast_listener(source) do
+    old = """
+        if (type === MESSAGES.CALL) {
+          await handleCall(data);
+        } else if (type.startsWith("popcorn")) {
+    """
+
+    new = """
+        if (type === MESSAGES.CALL) {
+          await handleCall(data);
+        } else if (type === MESSAGES.CAST) {
+          handleCast(data.value);
+        } else if (type.startsWith("popcorn")) {
+    """
+
+    cond do
+      String.contains?(source, "else if (type === MESSAGES.CAST)") -> source
+      String.contains?(source, old) -> String.replace(source, old, new, global: false)
+      true -> raise "Expected Popcorn iframe listener pattern not found in #{path_for_error()}"
+    end
+  end
+
+  defp patch_iframe_cast_handler(source) do
+    old = """
+    function ensureFunctionEval(maybeFunction) {
+    """
+
+    new = """
+    function handleCast(request) {
+      const { process, args } = request;
+      Module.cast(process, args);
+    }
+
+    function ensureFunctionEval(maybeFunction) {
+    """
+
+    cond do
+      String.contains?(source, "function handleCast(request)") -> source
+      String.contains?(source, old) -> String.replace(source, old, new, global: false)
+      true -> raise "Expected Popcorn handleCast insertion point not found in #{path_for_error()}"
+    end
+  end
+
+  defp path_for_error, do: Path.join(["static", "wasm", "popcorn_iframe.js"])
+
+  defp gzip_asset!(path) do
+    path
+    |> File.read!()
+    |> :zlib.gzip()
+    |> then(&File.write!("#{path}.gz", &1))
   end
 end

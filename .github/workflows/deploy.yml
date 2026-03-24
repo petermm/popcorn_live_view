@@ -36,24 +36,17 @@ jobs:
           key: ${{ runner.os }}-mix-${{ hashFiles('mix.lock') }}
           restore-keys: ${{ runner.os }}-mix-
 
-      - name: Cache _build
-        uses: actions/cache@v4
-        with:
-          path: _build
-          key: ${{ runner.os }}-build-${{ hashFiles('mix.lock') }}
-          restore-keys: ${{ runner.os }}-build-
-
       - name: mix setup
         run: mix setup
         env:
           SCRIPT_NAME: /popcorn_live_view
 
-      - name: Patch vendored Popcorn bundle path
+      - name: Patch Popcorn bundle path for GitHub Pages
         run: |
           set -euo pipefail
           target="static/wasm/popcorn.js"
           test -f "$target"
-          node -e 'const fs=require("fs");const p=process.argv[1];const from="${\"../\" + this._bundlePath}";const to="${\"/\" + this._bundlePath.replace(/^\\/+/, \"\")}";const src=fs.readFileSync(p,"utf8");if(!src.includes(from)){throw new Error("Expected bundle-path pattern not found in "+p)};fs.writeFileSync(p, src.replace(from,to));' "$target"
+          node -e 'const fs=require("fs");const p=process.argv[1];const oldValue="${\"../\" + this._bundlePath}";const newValue="${\"/\" + this._bundlePath.replace(/^\\/+/, \"\")}";const src=fs.readFileSync(p,"utf8");if(src.includes(newValue)){console.log("Popcorn bundle path already patched");process.exit(0)};if(!src.includes(oldValue)){throw new Error("Expected Popcorn bundle-path pattern not found in "+p)};fs.writeFileSync(p, src.replace(oldValue,newValue));console.log("Patched Popcorn bundle path for GitHub Pages");' "$target"
           grep -n 'meta name="bundle-path"' "$target"
 
       - name: Upload Pages artifact
