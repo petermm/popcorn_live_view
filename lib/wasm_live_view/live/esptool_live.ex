@@ -2,6 +2,7 @@ defmodule WasmLiveView.EsptoolLive do
   use Phoenix.LiveView, layout: {WasmLiveView.Layouts, :terminal_app}
 
   @flash_address 0x210000
+  @default_flash_mode :flash_only
 
   @impl true
   def mount(params, session, socket) do
@@ -10,7 +11,8 @@ defmodule WasmLiveView.EsptoolLive do
         {:ok,
          assign(socket,
            current_route: :esptool,
-           screen_title: "ESPTool ESP32 AtomVM"
+           screen_title: "ESPTool ESP32 AtomVM",
+           flash_mode: @default_flash_mode
          )}
 
       other ->
@@ -18,19 +20,42 @@ defmodule WasmLiveView.EsptoolLive do
     end
   end
 
-  defdelegate handle_event(event, params, socket), to: WasmLiveView.WokwiLive
+  @impl true
+  def handle_event("flash", params, socket) do
+    socket = assign(socket, :flash_mode, :flash_only)
+    WasmLiveView.WokwiLive.handle_event("flash", params, socket)
+  end
+
+  @impl true
+  def handle_event("flash-with-monitor", _params, socket) do
+    socket = assign(socket, :flash_mode, :flash_and_monitor)
+    WasmLiveView.WokwiLive.handle_event("flash", %{}, socket)
+  end
+
+  def handle_event(event, params, socket),
+    do: WasmLiveView.WokwiLive.handle_event(event, params, socket)
 
   @impl true
   def handle_info({:packbeam_result, :flash, {:ok, avm_binary}}, socket)
       when is_binary(avm_binary) do
+    monitor = socket.assigns.flash_mode == :flash_and_monitor
+
     {:noreply,
      socket
-     |> assign(packing: false)
+     |> assign(packing: false, flash_mode: @default_flash_mode)
      |> push_event("esptool-flash", %{
        filename: "main.avm",
        bytes: :binary.bin_to_list(avm_binary),
-       address: @flash_address
+       address: @flash_address,
+       monitor: monitor
      })}
+  end
+
+  def handle_info({:packbeam_result, _action, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(packing: false, flash_mode: @default_flash_mode)
+     |> update(:output, &(&1 <> "\n[packbeam error] " <> reason <> "\n"))}
   end
 
   def handle_info(message, socket), do: WasmLiveView.WokwiLive.handle_info(message, socket)
@@ -97,6 +122,16 @@ defmodule WasmLiveView.EsptoolLive do
             >
               {if @packing, do: "Packing AVM...", else: "Flash to Device"}
             </button>
+            <button
+              data-role="flash-to-device-and-monitor"
+              data-idle-label="Flash to Device & Monitor"
+              data-busy-label="Flashing & Starting Monitor..."
+              class={["btn btn-sm btn-secondary", if(@packing, do: "btn-disabled")]}
+              disabled={@packing}
+              phx-click="flash-with-monitor"
+            >
+              {if @packing, do: "Packing AVM...", else: "Flash to Device & Monitor"}
+            </button>
           </div>
         </div>
       </div>
@@ -127,8 +162,18 @@ defmodule WasmLiveView.EsptoolLive do
       async mounted() {
         this.esp32tool = null;
         this.flashInProgress = false;
-        this.flashButton = this.el.querySelector('[data-role="flash-to-device"]');
+        this.flashButtons = Array.from(
+          this.el.querySelectorAll(
+            '[data-role="flash-to-device"], [data-role="flash-to-device-and-monitor"]'
+          )
+        );
         this.lastProgressBucket = -1;
+        this.selectedPort = null;
+        this.monitorDecoder = new TextDecoder();
+        this.monitorPort = null;
+        this.monitorReader = null;
+        this.monitorStopRequested = false;
+        this.monitorTask = null;
 
         try {
           const mod = await import(/* @vite-ignore */ ESP32TOOL_CDN);
@@ -136,7 +181,8 @@ defmodule WasmLiveView.EsptoolLive do
           this.pushEvent("serial-output", {
             text:
               `\n[esptool] Loaded browser entry from CDN: ${ESP32TOOL_CDN}\n` +
-              `[esptool] connect() ${typeof mod.connect === "function" ? "is available" : "is missing"}\n`,
+              `[esptool] connect() ${typeof mod.connect === "function" ? "is available" : "is missing"}\n` +
+              `[esptool] connectWithPort() ${typeof mod.connectWithPort === "function" ? "is available" : "is missing"}\n`,
           });
         } catch (err) {
           console.error("[EsptoolActions] failed to load esp32tool:", err);
@@ -160,7 +206,7 @@ defmodule WasmLiveView.EsptoolLive do
           URL.revokeObjectURL(url);
         });
 
-        this.handleEvent("esptool-flash", async ({ filename, bytes, address }) => {
+        this.handleEvent("esptool-flash", async ({ filename, bytes, address, monitor }) => {
           if (this.flashInProgress) {
             this._appendSerialOutput("[esptool] Flash already in progress.");
             return;
@@ -171,10 +217,13 @@ defmodule WasmLiveView.EsptoolLive do
             return;
           }
 
+          await this._stopMonitor({ closePort: true, quiet: true });
+
           const imageBytes = this._toUint8Array(bytes);
           const flashAddress = Number.isFinite(address)
             ? address
             : DEFAULT_FLASH_ADDRESS;
+          const monitorAfterFlash = !!monitor;
 
           if (imageBytes.byteLength === 0) {
             this._appendSerialOutput("[esptool] Refusing to flash an empty AVM.");
@@ -182,19 +231,22 @@ defmodule WasmLiveView.EsptoolLive do
           }
 
           let loader = null;
+          let disconnectLoader = true;
 
           this.flashInProgress = true;
           this.lastProgressBucket = -1;
-          this._setFlashButtonState(true);
+          this._setFlashButtonsState(true);
           this._appendSerialOutput(
             `[esptool] Connecting to device to flash ${filename || "main.avm"} ` +
               `to ${this._formatHex(flashAddress)}...`
           );
 
           try {
-            loader = await this.esp32tool.connect(this._buildLogger());
+            loader = await this._connectLoader();
+            this.selectedPort = loader?.port || this.selectedPort;
             await loader.initialize();
             loader = await loader.runStub();
+            this.selectedPort = loader?.port || this.selectedPort;
             this._appendSerialOutput("[esptool] Starting flash...");
 
             await loader.flashData(
@@ -208,27 +260,69 @@ defmodule WasmLiveView.EsptoolLive do
               `[esptool] Flash complete at ${this._formatHex(flashAddress)}.`
             );
 
-            try {
-              const portChanged = await loader.resetToFirmware();
-              this._appendSerialOutput(
-                portChanged
-                  ? "[esptool] Device reset requested. Reselect the new USB port if it changed."
-                  : "[esptool] Device reset to firmware."
-              );
-            } catch (resetErr) {
-              console.warn("[EsptoolActions] reset failed:", resetErr);
-              this._appendSerialOutput(
-                `[esptool] Flash succeeded, but reset failed: ${String(resetErr)}`
-              );
+            if (monitorAfterFlash) {
+              try {
+                if (typeof loader.enterConsoleMode !== "function") {
+                  this._appendSerialOutput(
+                    "[monitor] This esp32tool build cannot switch into console mode automatically."
+                  );
+
+                  const portChanged = await loader.resetToFirmware();
+                  this._appendSerialOutput(
+                    portChanged
+                      ? "[esptool] Device reset requested. Reselect the new USB port if it changed."
+                      : "[esptool] Device reset to firmware."
+                  );
+                } else {
+                  this._appendSerialOutput(
+                    "[monitor] Resetting into firmware and attaching serial monitor..."
+                  );
+
+                  const portChanged = await loader.enterConsoleMode();
+
+                  if (portChanged) {
+                    this._appendSerialOutput(
+                      "[monitor] Device switched USB ports after reset. Reselect the firmware port to continue monitoring."
+                    );
+                  } else {
+                    if (typeof loader.releaseReaderWriter === "function") {
+                      await loader.releaseReaderWriter();
+                    }
+
+                    const port = loader?.port || this.selectedPort;
+                    await this._startMonitor(port);
+                    disconnectLoader = false;
+                  }
+                }
+              } catch (monitorErr) {
+                console.error("[EsptoolActions] monitor setup failed:", monitorErr);
+                this._appendSerialOutput(
+                  `[monitor] Flash succeeded, but monitor startup failed: ${String(monitorErr)}`
+                );
+              }
+            } else {
+              try {
+                const portChanged = await loader.resetToFirmware();
+                this._appendSerialOutput(
+                  portChanged
+                    ? "[esptool] Device reset requested. Reselect the new USB port if it changed."
+                    : "[esptool] Device reset to firmware."
+                );
+              } catch (resetErr) {
+                console.warn("[EsptoolActions] reset failed:", resetErr);
+                this._appendSerialOutput(
+                  `[esptool] Flash succeeded, but reset failed: ${String(resetErr)}`
+                );
+              }
             }
           } catch (err) {
             console.error("[EsptoolActions] flash failed:", err);
             this._appendSerialOutput(`[esptool] Flash failed: ${String(err)}`);
           } finally {
             this.flashInProgress = false;
-            this._setFlashButtonState(false);
+            this._setFlashButtonsState(false);
 
-            if (loader?.disconnect) {
+            if (disconnectLoader && loader?.disconnect) {
               try {
                 await loader.disconnect();
               } catch (disconnectErr) {
@@ -240,6 +334,140 @@ defmodule WasmLiveView.EsptoolLive do
             }
           }
         });
+      },
+
+      destroyed() {
+        this._stopMonitor({ closePort: true, quiet: true });
+      },
+
+      async _connectLoader() {
+        const logger = this._buildLogger();
+
+        if (this.selectedPort && this.esp32tool?.connectWithPort) {
+          try {
+            this._appendSerialOutput("[esptool] Reusing previously selected serial port...");
+            return await this.esp32tool.connectWithPort(this.selectedPort, logger);
+          } catch (err) {
+            console.warn("[EsptoolActions] failed to reuse port:", err);
+            this._appendSerialOutput(
+              `[esptool] Reusing the previous port failed: ${String(err)}`
+            );
+          }
+        }
+
+        return await this.esp32tool.connect(logger);
+      },
+
+      async _startMonitor(port) {
+        if (!port) {
+          throw new Error("No serial port is available for monitoring.");
+        }
+
+        await this._stopMonitor({ closePort: false, quiet: true });
+
+        if (!port.readable && typeof port.open === "function") {
+          await port.open({ baudRate: 115200 });
+        }
+
+        if (!port.readable) {
+          throw new Error("Readable stream not available for firmware monitoring.");
+        }
+
+        this.selectedPort = port;
+        this.monitorPort = port;
+        this.monitorStopRequested = false;
+        this.monitorDecoder = new TextDecoder();
+
+        const reader = port.readable.getReader();
+        this.monitorReader = reader;
+
+        this._appendSerialOutput("[monitor] Serial monitor attached at 115200 baud.");
+
+        this.monitorTask = (async () => {
+          try {
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              if (!value || value.length === 0) continue;
+
+              const text = this.monitorDecoder.decode(value, { stream: true });
+              if (text) {
+                this.pushEvent("serial-output", { text });
+              }
+            }
+
+            const tail = this.monitorDecoder.decode();
+            if (tail) {
+              this.pushEvent("serial-output", { text: tail });
+            }
+
+            if (!this.monitorStopRequested) {
+              this._appendSerialOutput("[monitor] Serial monitor stopped.");
+            }
+          } catch (err) {
+            if (!this.monitorStopRequested) {
+              console.error("[EsptoolActions] monitor failed:", err);
+              this._appendSerialOutput(
+                `[monitor] Serial monitor failed: ${String(err)}`
+              );
+            }
+          } finally {
+            try {
+              reader.releaseLock();
+            } catch (releaseErr) {
+              console.debug(
+                "[EsptoolActions] monitor reader release failed:",
+                releaseErr
+              );
+            }
+
+            if (this.monitorReader === reader) {
+              this.monitorReader = null;
+            }
+
+            this.monitorTask = null;
+            this.monitorStopRequested = false;
+          }
+        })();
+      },
+
+      async _stopMonitor({ closePort = false, quiet = false } = {}) {
+        const port = this.monitorPort || this.selectedPort;
+        const hadMonitor = !!(this.monitorReader || this.monitorTask);
+
+        if (hadMonitor) {
+          this.monitorStopRequested = true;
+
+          if (!quiet) {
+            this._appendSerialOutput("[monitor] Stopping serial monitor...");
+          }
+
+          if (this.monitorReader) {
+            try {
+              await this.monitorReader.cancel();
+            } catch (err) {
+              console.debug("[EsptoolActions] monitor cancel failed:", err);
+            }
+          }
+
+          if (this.monitorTask) {
+            try {
+              await this.monitorTask;
+            } catch (err) {
+              console.debug("[EsptoolActions] monitor task failed:", err);
+            }
+          }
+        }
+
+        if (closePort && port && (port.readable || port.writable)) {
+          try {
+            await port.close();
+          } catch (err) {
+            console.debug("[EsptoolActions] monitor port close failed:", err);
+          }
+        }
+
+        this.monitorPort = closePort ? null : port;
       },
 
       _appendSerialOutput(text) {
@@ -271,14 +499,14 @@ defmodule WasmLiveView.EsptoolLive do
         );
       },
 
-      _setFlashButtonState(isBusy) {
-        if (!this.flashButton) return;
-
-        this.flashButton.disabled = isBusy;
-        this.flashButton.classList.toggle("btn-disabled", isBusy);
-        this.flashButton.textContent = isBusy
-          ? this.flashButton.dataset.busyLabel || "Flashing Device..."
-          : this.flashButton.dataset.idleLabel || "Flash to Device";
+      _setFlashButtonsState(isBusy) {
+        for (const button of this.flashButtons) {
+          button.disabled = isBusy;
+          button.classList.toggle("btn-disabled", isBusy);
+          button.textContent = isBusy
+            ? button.dataset.busyLabel || "Flashing Device..."
+            : button.dataset.idleLabel || "Flash to Device";
+        }
       },
 
       _toUint8Array(bytes) {
