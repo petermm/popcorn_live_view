@@ -5,8 +5,18 @@ defmodule WasmLiveView.RuntimeStatsLive do
 
   @refresh_interval 2_000
 
-  @probe_keys [:process_count, :atom_count, :port_count, :schedulers,
-                :otp_release, :version, :machine, :wordsize, :platform, :memory]
+  @probe_keys [
+    :process_count,
+    :atom_count,
+    :port_count,
+    :schedulers,
+    :otp_release,
+    :version,
+    :machine,
+    :wordsize,
+    :platform,
+    :memory
+  ]
 
   # Each stat probe runs in a spawned process so a NIF-not-found crash
   # (which bypasses try/catch in AtomVM) only kills the probe, not the LiveView.
@@ -30,6 +40,7 @@ defmodule WasmLiveView.RuntimeStatsLive do
         mounted_at: System.monotonic_time(:millisecond),
         erlang_stats: %{},
         js_stats: %{},
+        js_stats_receiver: nil,
         available_probes: @probe_keys,
         failed_probes: []
       )
@@ -37,6 +48,7 @@ defmodule WasmLiveView.RuntimeStatsLive do
     socket =
       if connected?(socket) do
         socket
+        |> ensure_js_stats_receiver()
         |> run_probes()
         |> schedule_refresh()
         |> fetch_js_stats()
@@ -175,12 +187,13 @@ defmodule WasmLiveView.RuntimeStatsLive do
 
     for key <- socket.assigns.available_probes do
       spawn(fn ->
-        ref = Process.monitor(
-          spawn(fn ->
-            result = run_probe(key)
-            send(lv, {:probe_result, key, result})
-          end)
-        )
+        ref =
+          Process.monitor(
+            spawn(fn ->
+              result = run_probe(key)
+              send(lv, {:probe_result, key, result})
+            end)
+          )
 
         receive do
           {:DOWN, ^ref, :process, _, :normal} -> :ok
@@ -195,13 +208,75 @@ defmodule WasmLiveView.RuntimeStatsLive do
     update_uptime(socket)
   end
 
-  defp fetch_js_stats(socket) do
+  defp ensure_js_stats_receiver(socket) do
+    receiver = :"runtime_stats_#{System.unique_integer([:positive])}"
     lv = self()
 
-    spawn(fn ->
-      receiver = :"runtime_stats_#{:erlang.unique_integer([:positive])}"
-      Process.register(self(), receiver)
+    spawn(fn -> start_js_stats_receiver(receiver, lv) end)
 
+    receive do
+      {:js_stats_receiver_ready, ^receiver} ->
+        assign(socket, js_stats_receiver: receiver)
+    after
+      1_000 ->
+        assign(socket, js_stats_receiver: receiver)
+    end
+  end
+
+  defp start_js_stats_receiver(receiver, lv) do
+    Process.register(self(), receiver)
+    send(lv, {:js_stats_receiver_ready, receiver})
+    ref = Process.monitor(lv)
+
+    try do
+      js_stats_receiver_loop(receiver, lv, ref)
+    after
+      safe_unregister(receiver)
+    end
+  end
+
+  defp js_stats_receiver_loop(receiver, lv, ref) do
+    receive do
+      {:DOWN, ^ref, :process, ^lv, _reason} ->
+        :ok
+
+      {:emscripten, _} = raw ->
+        handle_js_stats_message(raw, lv)
+        js_stats_receiver_loop(receiver, lv, ref)
+
+      _msg ->
+        js_stats_receiver_loop(receiver, lv, ref)
+    end
+  end
+
+  defp handle_js_stats_message(raw, lv) do
+    try do
+      case Popcorn.Wasm.parse_message!(raw) do
+        {:wasm_cast, %{"js_stats" => stats}} ->
+          send(lv, {:js_stats, stats})
+
+        _ ->
+          :ok
+      end
+    catch
+      _, _ -> :ok
+    end
+  end
+
+  defp safe_unregister(receiver) do
+    try do
+      Process.unregister(receiver)
+    catch
+      _, _ -> :ok
+    end
+  end
+
+  defp fetch_js_stats(%{assigns: %{js_stats_receiver: nil}} = socket), do: socket
+
+  defp fetch_js_stats(socket) do
+    receiver = socket.assigns.js_stats_receiver
+
+    spawn(fn ->
       try do
         Popcorn.Wasm.run_js!(
           """
@@ -267,29 +342,8 @@ defmodule WasmLiveView.RuntimeStatsLive do
           """,
           %{receiver: receiver}
         )
-
-        receive do
-          {:emscripten, _} = raw ->
-            Process.unregister(receiver)
-
-            case Popcorn.Wasm.parse_message!(raw) do
-              {:wasm_cast, %{"js_stats" => stats}} ->
-                send(lv, {:js_stats, stats})
-
-              _ ->
-                :ok
-            end
-        after
-          5_000 ->
-            Process.unregister(receiver)
-        end
       catch
-        _, _ ->
-          try do
-            Process.unregister(receiver)
-          catch
-            _, _ -> :ok
-          end
+        _, _ -> :ok
       end
     end)
 
