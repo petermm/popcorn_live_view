@@ -526,24 +526,49 @@ defmodule WasmLiveView.WokwiLive do
     export default {
       mounted() {
         this._raf = null;
+        this._bottomThreshold = 24;
+        this._shouldAutoScroll = true;
+        this._onScroll = () => {
+          this._shouldAutoScroll = this._isNearBottom();
+        };
+
+        this.el.addEventListener("scroll", this._onScroll, { passive: true });
         this._scrollToBottom();
+      },
+
+      beforeUpdate() {
+        this._shouldAutoScroll = this._shouldAutoScroll || this._isNearBottom();
       },
 
       updated() {
-        this._scrollToBottom();
+        if (this._shouldAutoScroll) {
+          this._scrollToBottom();
+        }
       },
 
       destroyed() {
+        if (this._onScroll) {
+          this.el.removeEventListener("scroll", this._onScroll);
+        }
+
         if (this._raf != null) {
           cancelAnimationFrame(this._raf);
           this._raf = null;
         }
       },
 
+      _isNearBottom() {
+        return (
+          this.el.scrollHeight - (this.el.scrollTop + this.el.clientHeight) <=
+          this._bottomThreshold
+        );
+      },
+
       _scrollToBottom() {
         if (this._raf != null) cancelAnimationFrame(this._raf);
         this._raf = requestAnimationFrame(() => {
           this.el.scrollTop = this.el.scrollHeight;
+          this._shouldAutoScroll = true;
           this._raf = null;
         });
       },
