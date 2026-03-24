@@ -24,7 +24,9 @@ defmodule WasmLiveView.Layouts do
     %{path: @script_prefix <> "/solar-forecast", label: "Solar Forecast", key: :solar_forecast},
     %{path: @script_prefix <> "/regex-tester", label: "RegexTester", key: :regex_tester},
     %{path: @script_prefix <> "/runtime-stats", label: "Runtime Stats", key: :runtime_stats},
-    %{path: @script_prefix <> "/iex", label: "IEX", key: :iex}
+    %{path: @script_prefix <> "/iex", label: "IEX", key: :iex},
+    %{path: @script_prefix <> "/wokwi", label: "Wokwi", key: :wokwi},
+    %{path: @script_prefix <> "/esptool", label: "ESPTool", key: :esptool}
   ]
 
   defp sidebar(assigns) do

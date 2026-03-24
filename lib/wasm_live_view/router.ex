@@ -23,5 +23,6 @@ defmodule WasmLiveView.Router do
     live("/runtime-stats", WasmLiveView.RuntimeStatsLive, :index)
     live("/iex", WasmLiveView.IexLive, :index)
     live("/wokwi", WasmLiveView.WokwiLive, :index)
+    live("/esptool", WasmLiveView.EsptoolLive, :index)
   end
 end
