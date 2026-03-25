@@ -6,6 +6,9 @@ defmodule WasmLiveView.RuntimeStatsLive do
   @refresh_interval 2_000
   @max_recent_processes 10
   @max_process_snapshot 15
+  @stress_process_count 1_000
+  @stress_process_batch_size 50
+  @stress_process_lifetime_ms 30_000
 
   @js_stats_receivers [
     :runtime_stats_js_1,
@@ -182,17 +185,7 @@ defmodule WasmLiveView.RuntimeStatsLive do
   end
 
   def handle_event("stress-processes", _params, socket) do
-    spawn_stress(socket, fn ->
-      for _ <- 1..1000 do
-        spawn(fn ->
-          receive do
-            :stop -> :ok
-          after
-            30_000 -> :ok
-          end
-        end)
-      end
-    end)
+    spawn_stress(socket, fn -> spawn_process_batches(@stress_process_count) end)
   end
 
   def handle_event("stress-messages", _params, socket) do
@@ -227,6 +220,7 @@ defmodule WasmLiveView.RuntimeStatsLive do
       js_stats_receiver: nil,
       current_js_sample_id: nil,
       process_snapshot: [],
+      recent_process_snapshot: [],
       previous_process_ids: MapSet.new(),
       process_delta: @initial_process_delta,
       available_probes: @probe_keys,
@@ -272,6 +266,37 @@ defmodule WasmLiveView.RuntimeStatsLive do
   defp spawn_stress(socket, fun) do
     spawn(fun)
     {:noreply, socket}
+  end
+
+  defp spawn_process_batches(remaining) when remaining <= 0, do: :ok
+
+  defp spawn_process_batches(remaining) do
+    batch_size = min(remaining, @stress_process_batch_size)
+
+    for _ <- 1..batch_size do
+      spawn_sleeping_process()
+    end
+
+    if remaining > batch_size do
+      receive do
+      after
+        1 -> :ok
+      end
+
+      spawn_process_batches(remaining - batch_size)
+    else
+      :ok
+    end
+  end
+
+  defp spawn_sleeping_process do
+    spawn(fn ->
+      receive do
+        :stop -> :ok
+      after
+        @stress_process_lifetime_ms -> :ok
+      end
+    end)
   end
 
   defp schedule_refresh(socket) do
@@ -350,50 +375,89 @@ defmodule WasmLiveView.RuntimeStatsLive do
     pids = safe_processes()
     current_ids = MapSet.new(pids)
     previous_ids = socket.assigns.previous_process_ids
+    recent_pids = recently_added_pids(previous_ids, current_ids)
 
     assign(socket,
-      process_snapshot: build_process_snapshot(pids),
+      process_snapshot: build_process_snapshot(pids, self()),
+      recent_process_snapshot: build_recent_process_snapshot(recent_pids, self()),
       previous_process_ids: current_ids,
-      process_delta: build_process_delta(previous_ids, current_ids, length(pids))
+      process_delta: build_process_delta(recent_pids, previous_ids, current_ids, length(pids))
     )
   end
 
-  defp build_process_snapshot(pids) do
+  defp build_process_snapshot(pids, current_pid) do
     pids
-    |> Enum.map(&process_snapshot_entry/1)
+    |> Enum.map(&process_snapshot_entry(&1, current_pid))
     |> Enum.sort_by(fn entry -> {-entry.memory, -entry.message_queue_len, entry.pid} end)
     |> Enum.take(@max_process_snapshot)
   end
 
-  defp build_process_delta(previous_ids, current_ids, total) do
+  defp build_recent_process_snapshot(pids, current_pid) do
+    pids
+    |> Enum.map(&process_snapshot_entry(&1, current_pid))
+    |> Enum.sort_by(& &1.pid)
+  end
+
+  defp build_process_delta(recent_pids, previous_ids, current_ids, total) do
     %{
-      added: added_process_ids(previous_ids, current_ids),
+      added: Enum.map(recent_pids, &:erlang.pid_to_list/1),
       removed_count: MapSet.size(MapSet.difference(previous_ids, current_ids)),
       total: total
     }
   end
 
-  defp added_process_ids(previous_ids, current_ids) do
+  defp recently_added_pids(previous_ids, current_ids) do
     if MapSet.size(previous_ids) == 0 do
       []
     else
       current_ids
       |> MapSet.difference(previous_ids)
       |> MapSet.to_list()
-      |> Enum.map(&:erlang.pid_to_list/1)
-      |> Enum.sort()
+      |> Enum.sort_by(&:erlang.pid_to_list/1)
       |> Enum.take(@max_recent_processes)
     end
   end
 
-  defp process_snapshot_entry(pid) do
+  defp process_snapshot_entry(pid, current_pid) do
     %{
       pid: :erlang.pid_to_list(pid),
+      role: process_role(pid, current_pid),
+      registered_name: process_registered_name(pid),
+      initial_call: process_initial_call(pid),
+      link_count: process_link_count(pid),
       memory: process_info_value(pid, :memory),
       message_queue_len: process_info_value(pid, :message_queue_len),
       heap_size: process_info_value(pid, :heap_size),
       stack_size: process_info_value(pid, :stack_size)
     }
+  end
+
+  defp process_role(pid, current_pid) when pid == current_pid, do: "current page"
+  defp process_role(_pid, _current_pid), do: nil
+
+  defp process_registered_name(pid) do
+    case process_info_term(pid, :registered_name) do
+      [] -> nil
+      name when is_atom(name) -> to_string(name)
+      name when is_list(name) -> List.to_string(name)
+      _ -> nil
+    end
+  end
+
+  defp process_initial_call(pid) do
+    if Code.ensure_loaded?(:proc_lib) and function_exported?(:proc_lib, :translate_initial_call, 1) do
+      case safe_call(fn -> :proc_lib.translate_initial_call(pid) end, nil) do
+        {mod, fun, arity} -> "#{mod}.#{fun}/#{arity}"
+        _ -> nil
+      end
+    end
+  end
+
+  defp process_link_count(pid) do
+    case process_info_term(pid, :links) do
+      links when is_list(links) -> length(links)
+      _ -> 0
+    end
   end
 
   defp safe_processes do
@@ -413,6 +477,18 @@ defmodule WasmLiveView.RuntimeStatsLive do
         end
       end,
       0
+    )
+  end
+
+  defp process_info_term(pid, key) do
+    safe_call(
+      fn ->
+        case :erlang.process_info(pid, key) do
+          {^key, value} -> value
+          _ -> nil
+        end
+      end,
+      nil
     )
   end
 
@@ -669,6 +745,8 @@ defmodule WasmLiveView.RuntimeStatsLive do
 
   @impl true
   def render(assigns) do
+    assigns = assign_new(assigns, :recent_process_snapshot, fn -> [] end)
+
     ~H"""
     <.header>
       Runtime Stats
@@ -693,6 +771,7 @@ defmodule WasmLiveView.RuntimeStatsLive do
     <.process_snapshot_card
       :if={@process_snapshot != []}
       process_snapshot={@process_snapshot}
+      recent_process_snapshot={@recent_process_snapshot}
       process_delta={@process_delta}
     />
     """
@@ -879,6 +958,8 @@ defmodule WasmLiveView.RuntimeStatsLive do
   end
 
   defp process_snapshot_card(assigns) do
+    assigns = assign_new(assigns, :recent_process_snapshot, fn -> [] end)
+
     ~H"""
     <div class="card bg-base-200 shadow mb-6">
       <div class="card-body p-4">
@@ -896,13 +977,46 @@ defmodule WasmLiveView.RuntimeStatsLive do
           <div class="text-xs font-semibold">Recently added pids</div>
           <div class="font-mono text-[11px] break-all">{Enum.join(@process_delta.added, ", ")}</div>
         </div>
-        <div class="overflow-x-auto mt-3">
+        <div :if={@recent_process_snapshot != []} class="overflow-x-auto mt-3">
+          <div class="text-xs font-semibold mb-2">Recently added process details</div>
           <table class="table table-sm table-zebra">
             <thead>
               <tr>
                 <th>Pid</th>
+                <th>Name / Role</th>
+                <th>Initial Call</th>
                 <th class="text-right">Memory</th>
                 <th class="text-right">Msgs</th>
+                <th class="text-right">Links</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={proc <- @recent_process_snapshot}>
+                <td class="font-mono text-xs">{proc.pid}</td>
+                <td class="text-xs">
+                  <div :if={proc.registered_name} class="font-mono">{proc.registered_name}</div>
+                  <div :if={proc.role} class="text-base-content/70">{proc.role}</div>
+                  <div :if={!proc.registered_name and !proc.role} class="text-base-content/40">-</div>
+                </td>
+                <td class="font-mono text-[11px]">{proc.initial_call || "-"}</td>
+                <td class="text-right font-mono">{format_bytes(proc.memory)}</td>
+                <td class="text-right font-mono">{proc.message_queue_len}</td>
+                <td class="text-right font-mono">{proc.link_count}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="overflow-x-auto mt-3">
+          <div class="text-xs font-semibold mb-2">Largest processes</div>
+          <table class="table table-sm table-zebra">
+            <thead>
+              <tr>
+                <th>Pid</th>
+                <th>Name / Role</th>
+                <th>Initial Call</th>
+                <th class="text-right">Memory</th>
+                <th class="text-right">Msgs</th>
+                <th class="text-right">Links</th>
                 <th class="text-right">Heap</th>
                 <th class="text-right">Stack</th>
               </tr>
@@ -910,8 +1024,15 @@ defmodule WasmLiveView.RuntimeStatsLive do
             <tbody>
               <tr :for={proc <- @process_snapshot}>
                 <td class="font-mono text-xs">{proc.pid}</td>
+                <td class="text-xs">
+                  <div :if={proc.registered_name} class="font-mono">{proc.registered_name}</div>
+                  <div :if={proc.role} class="text-base-content/70">{proc.role}</div>
+                  <div :if={!proc.registered_name and !proc.role} class="text-base-content/40">-</div>
+                </td>
+                <td class="font-mono text-[11px]">{proc.initial_call || "-"}</td>
                 <td class="text-right font-mono">{format_bytes(proc.memory)}</td>
                 <td class="text-right font-mono">{proc.message_queue_len}</td>
+                <td class="text-right font-mono">{proc.link_count}</td>
                 <td class="text-right font-mono">{proc.heap_size}</td>
                 <td class="text-right font-mono">{proc.stack_size}</td>
               </tr>
