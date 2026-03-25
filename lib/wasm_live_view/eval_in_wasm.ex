@@ -333,39 +333,11 @@ defmodule WasmLiveView.EvalInWasm do
   # --- Erlang compiler ---
 
   defp do_compile_erlang(code) do
-    forms = parse_erlang_forms(code)
-    {:ok, module, module_bin} = :compile.forms(forms, [])
+    {module, module_bin} = WasmLiveView.ErlangSource.compile_binary!(code)
     [{Atom.to_charlist(module) ++ ~c".beam", module_bin}]
   end
 
-  defp do_format_erlang(code) do
-    code
-    |> parse_erlang_forms()
-    |> Enum.map_join("", fn form -> IO.iodata_to_binary(:erl_pp.form(form)) end)
-    |> String.trim_trailing()
-    |> Kernel.<>("\n")
-  end
-
-  defp parse_erlang_forms(code) do
-    code
-    |> :unicode.characters_to_list(:utf8)
-    |> Kernel.++(~c"\n")
-    |> scan_and_parse_forms({1, 1})
-  end
-
-  defp scan_and_parse_forms(remaining, loc) do
-    case :erl_scan.tokens([], remaining, loc) do
-      {:done, {:ok, tokens, end_loc}, rest} ->
-        {:ok, form} = :erl_parse.parse_form(tokens)
-        [form | scan_and_parse_forms(rest, end_loc)]
-
-      {:done, {:eof, _}, _} ->
-        []
-
-      {:more, _} ->
-        []
-    end
-  end
+  defp do_format_erlang(code), do: WasmLiveView.ErlangSource.format!(code)
 
   defp do_eval(code, :elixir) do
     {:ok, string_io} = StringIO.open("")
@@ -382,32 +354,7 @@ defmodule WasmLiveView.EvalInWasm do
     end
   end
 
-  defp do_eval(code, {:module, :erlang}) do
-    compile_opts = [
-      :deterministic,
-      :return_errors,
-      :compressed,
-      :no_spawn_compiler_process,
-      :no_docs
-    ]
-
-    parse_form = fn form_tok ->
-      {:ok, form} = :erl_parse.parse_form(form_tok)
-      form
-    end
-
-    code = :erlang.binary_to_list(code)
-
-    with {:ok, tokens, _end_location} <- :erl_scan.string(code),
-         {:ok, module, module_bin} <-
-           tokens
-           |> split_forms()
-           |> Enum.map(parse_form)
-           |> :compile.noenv_forms(compile_opts),
-         {:module, _module} <- :code.load_binary(module, ~c"nofile", module_bin) do
-      module
-    end
-  end
+  defp do_eval(code, {:module, :erlang}), do: WasmLiveView.ErlangSource.load_module!(code)
 
   defp do_eval(code, :erlang) do
     code = :erlang.binary_to_list(code)
@@ -419,14 +366,4 @@ defmodule WasmLiveView.EvalInWasm do
     end
   end
 
-  defp split_forms(forms) do
-    split_on_dots = fn
-      {:dot, _} = f, current -> {:cont, Enum.reverse([f | current]), []}
-      f, current -> {:cont, [f | current]}
-    end
-
-    ensure_empty_acc = fn [] -> {:cont, []} end
-
-    Enum.chunk_while(forms, [], split_on_dots, ensure_empty_acc)
-  end
 end

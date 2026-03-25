@@ -73,13 +73,14 @@ defmodule WasmLiveView.MixProject do
     Mix.Task.run("tailwind", ["wasm_live_view"])
     Mix.Task.run("esbuild", ["wasm_live_view"])
 
-    # Popcorn 0.2.x already bundles deps from _build/lib/*/ebin.
-    # Only add our custom stubs here to avoid duplicating dependency beams.
+    # Popcorn 0.2.x already bundles Mix deps from _build/lib/*/ebin.
+    # Add AtomVM-specific stubs plus OTP-only beams needed in the browser runtime.
     compile_stubs()
     stub_beams = Path.wildcard(Path.join([@stubs_out, "*.beam"]))
+    syntax_tools_beams = otp_app_beams(:syntax_tools)
 
     Popcorn.cook(
-      extra_beams: stub_beams,
+      extra_beams: syntax_tools_beams ++ stub_beams,
       include_vm: true
     )
 
@@ -122,6 +123,22 @@ defmodule WasmLiveView.MixProject do
       end
 
     ex_modules ++ erl_modules
+  end
+
+  defp otp_app_beams(app) do
+    app_pattern =
+      Path.join([
+        :code.root_dir() |> to_string(),
+        "lib",
+        "#{app}-*",
+        "ebin",
+        "*.beam"
+      ])
+
+    case Path.wildcard(app_pattern) do
+      [] -> Mix.raise("Could not find OTP beams for #{app}")
+      beams -> beams
+    end
   end
 
   defp patch_popcorn_iframe_casts! do
