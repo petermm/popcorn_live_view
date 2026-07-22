@@ -70,9 +70,15 @@ defmodule WasmLiveView.MixProject do
 
   @stubs_dir "stubs"
   @stubs_out "_build/stubs"
-  # Popcorn 0.3.x no longer ships AtomVM via include_vm; runtime comes from the npm package.
+  # Popcorn 0.3.x no longer ships AtomVM via include_vm.
+  # JS glue comes from the npm package; AtomVM itself should be a *Release* build.
+  # The npm @swmansion/popcorn package currently ships a Debug WASM (SAFE_HEAP +
+  # asserts → abort("native code called abort()")), which breaks :re / run_js.
   @popcorn_npm_dist "assets/node_modules/@swmansion/popcorn/dist"
-  @popcorn_runtime_files ~w(AtomVM.mjs AtomVM.wasm iframe.mjs popcorn.mjs bridge.mjs types.mjs errors.mjs index.mjs)
+  @atomvm_release_dir "vendor/atomvm"
+  @popcorn_js_files ~w(iframe.mjs popcorn.mjs bridge.mjs types.mjs errors.mjs index.mjs)
+  @atomvm_files ~w(AtomVM.mjs AtomVM.wasm)
+  @popcorn_runtime_files @atomvm_files ++ @popcorn_js_files
 
   defp cook(_) do
     Mix.Task.run("compile")
@@ -104,17 +110,23 @@ defmodule WasmLiveView.MixProject do
     out_dir = Application.get_env(:popcorn, :out_dir) || "static/wasm"
     File.mkdir_p!(out_dir)
 
-    for name <- @popcorn_runtime_files do
+    for name <- @popcorn_js_files do
       src = Path.join(@popcorn_npm_dist, name)
       dest = Path.join(out_dir, name)
 
       unless File.exists?(src) do
         Mix.raise("""
-        Missing Popcorn runtime file #{src}.
+        Missing Popcorn JS runtime file #{src}.
         Run `npm install --prefix assets` (or `mix assets.setup`) first.
         """)
       end
 
+      File.cp!(src, dest)
+    end
+
+    for name <- @atomvm_files do
+      dest = Path.join(out_dir, name)
+      src = atomvm_source_path!(name)
       File.cp!(src, dest)
     end
 
@@ -130,6 +142,49 @@ defmodule WasmLiveView.MixProject do
     Mix.shell().info("Copied AtomVM runtime to #{out_dir}/")
   end
 
+  # Prefer a vendored Release build; fall back to npm only if present and not Debug.
+  defp atomvm_source_path!(name) do
+    vendor = Path.join(@atomvm_release_dir, name)
+    npm = Path.join(@popcorn_npm_dist, name)
+
+    cond do
+      File.exists?(vendor) ->
+        vendor
+
+      File.exists?(npm) ->
+        if name == "AtomVM.mjs" and atomvm_debug_build?(npm) do
+          Mix.raise("""
+          npm AtomVM.mjs looks like a Debug build (SAFE_HEAP/assertions).
+          That aborts on FissionVM asserts during Popcorn.Wasm.run_js/tracked eval
+          (e.g. the :re stub used by /regex-tester).
+
+          Place a Release build at:
+            #{@atomvm_release_dir}/AtomVM.mjs
+            #{@atomvm_release_dir}/AtomVM.wasm
+
+          Build with:
+            mix popcorn.build_runtime --target wasm
+          or popcorn's scripts/build-atomvm.sh release-wasm
+          """)
+        end
+
+        npm
+
+      true ->
+        Mix.raise("""
+        Missing AtomVM runtime file #{name}.
+        Expected #{vendor} (preferred) or #{npm}.
+        """)
+    end
+  end
+
+  defp atomvm_debug_build?(mjs_path) do
+    case File.read(mjs_path) do
+      {:ok, src} -> String.contains?(src, "SAFE_HEAP") or String.contains?(src, "SAFE_HEAP_STORE")
+      _ -> false
+    end
+  end
+
   defp patch_atomvm_exports!(path) do
     source = File.read!(path)
 
@@ -139,40 +194,39 @@ defmodule WasmLiveView.MixProject do
     else
       # Emscripten installs configurable aborting getters for unexported names.
       # Replace them with real data properties after HEAP* views are created.
-      marker =
-        "function updateMemoryViews() {\n  var b = wasmMemory.buffer;\n  HEAP8 = new Int8Array(b);\n  HEAP16 = new Int16Array(b);\n  HEAPU8 = new Uint8Array(b);\n  HEAP32 = new Int32Array(b);\n  HEAPU32 = new Uint32Array(b);\n  HEAPF32 = new Float32Array(b);\n  HEAPF64 = new Float64Array(b);\n  HEAP64 = new BigInt64Array(b);\n  new BigUint64Array(b);\n}"
+      # Release builds minify updateMemoryViews to a single line; Debug builds keep newlines.
+      export_tail =
+        "/* popcorn_live_view:export_wasm_memory */" <>
+          "var __exportMem=(k,v)=>Object.defineProperty(Module,k,{value:v,writable:true,configurable:true});" <>
+          "__exportMem(\"wasmMemory\",wasmMemory);" <>
+          "__exportMem(\"HEAP8\",HEAP8);" <>
+          "__exportMem(\"HEAPU8\",HEAPU8);" <>
+          "__exportMem(\"HEAP16\",HEAP16);" <>
+          "__exportMem(\"HEAP32\",HEAP32);" <>
+          "__exportMem(\"HEAPU32\",HEAPU32);" <>
+          "__exportMem(\"HEAPF32\",HEAPF32);" <>
+          "__exportMem(\"HEAPF64\",HEAPF64);"
 
-      export_snip =
-        "function updateMemoryViews() {\n" <>
-          "  var b = wasmMemory.buffer;\n" <>
-          "  HEAP8 = new Int8Array(b);\n" <>
-          "  HEAP16 = new Int16Array(b);\n" <>
-          "  HEAPU8 = new Uint8Array(b);\n" <>
-          "  HEAP32 = new Int32Array(b);\n" <>
-          "  HEAPU32 = new Uint32Array(b);\n" <>
-          "  HEAPF32 = new Float32Array(b);\n" <>
-          "  HEAPF64 = new Float64Array(b);\n" <>
-          "  HEAP64 = new BigInt64Array(b);\n" <>
-          "  new BigUint64Array(b);\n" <>
-          "  /* popcorn_live_view:export_wasm_memory */\n" <>
-          "  var __exportMem = (k, v) => Object.defineProperty(Module, k, {value: v, writable: true, configurable: true});\n" <>
-          "  __exportMem(\"wasmMemory\", wasmMemory);\n" <>
-          "  __exportMem(\"HEAP8\", HEAP8);\n" <>
-          "  __exportMem(\"HEAPU8\", HEAPU8);\n" <>
-          "  __exportMem(\"HEAP16\", HEAP16);\n" <>
-          "  __exportMem(\"HEAP32\", HEAP32);\n" <>
-          "  __exportMem(\"HEAPU32\", HEAPU32);\n" <>
-          "  __exportMem(\"HEAPF32\", HEAPF32);\n" <>
-          "  __exportMem(\"HEAPF64\", HEAPF64);\n" <>
-          "}"
+      markers = [
+        # Minified release (FissionVM / vendor)
+        {"function updateMemoryViews(){var b=wasmMemory.buffer;HEAP8=new Int8Array(b);HEAP16=new Int16Array(b);HEAPU8=new Uint8Array(b);HEAPU16=new Uint16Array(b);HEAP32=new Int32Array(b);HEAPU32=new Uint32Array(b);HEAPF32=new Float32Array(b);HEAPF64=new Float64Array(b);HEAP64=new BigInt64Array(b);HEAPU64=new BigUint64Array(b)}",
+         "function updateMemoryViews(){var b=wasmMemory.buffer;HEAP8=new Int8Array(b);HEAP16=new Int16Array(b);HEAPU8=new Uint8Array(b);HEAPU16=new Uint16Array(b);HEAP32=new Int32Array(b);HEAPU32=new Uint32Array(b);HEAPF32=new Float32Array(b);HEAPF64=new Float64Array(b);HEAP64=new BigInt64Array(b);HEAPU64=new BigUint64Array(b);" <>
+           export_tail <> "}"},
+        # Pretty debug (npm Debug build)
+        {"function updateMemoryViews() {\n  var b = wasmMemory.buffer;\n  HEAP8 = new Int8Array(b);\n  HEAP16 = new Int16Array(b);\n  HEAPU8 = new Uint8Array(b);\n  HEAP32 = new Int32Array(b);\n  HEAPU32 = new Uint32Array(b);\n  HEAPF32 = new Float32Array(b);\n  HEAPF64 = new Float64Array(b);\n  HEAP64 = new BigInt64Array(b);\n  new BigUint64Array(b);\n}",
+         "function updateMemoryViews() {\n  var b = wasmMemory.buffer;\n  HEAP8 = new Int8Array(b);\n  HEAP16 = new Int16Array(b);\n  HEAPU8 = new Uint8Array(b);\n  HEAP32 = new Int32Array(b);\n  HEAPU32 = new Uint32Array(b);\n  HEAPF32 = new Float32Array(b);\n  HEAPF64 = new Float64Array(b);\n  HEAP64 = new BigInt64Array(b);\n  new BigUint64Array(b);\n  " <>
+           export_tail <> "\n}"}
+      ]
 
-      if String.contains?(source, marker) do
-        File.write!(path, String.replace(source, marker, export_snip, global: false))
-      else
-        Mix.shell().info(
-          "warning: could not patch AtomVM.mjs memory exports (marker not found); " <>
-            "runtime-stats will skip wasm memory probes"
-        )
+      case Enum.find(markers, fn {marker, _} -> String.contains?(source, marker) end) do
+        {marker, replacement} ->
+          File.write!(path, String.replace(source, marker, replacement, global: false))
+
+        nil ->
+          Mix.shell().info(
+            "warning: could not patch AtomVM.mjs memory exports (marker not found); " <>
+              "runtime-stats will skip wasm memory probes"
+          )
       end
     end
   end
