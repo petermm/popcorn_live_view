@@ -29,10 +29,12 @@
     })();
   </script>
   <script>
-    // Install the COI service worker only when the page is NOT already
-    // cross-origin isolated. Local server.exs sets COOP/COEP itself; registering
-    // the SW there rewrites every fetch (including AtomVM pthread workers) and
-    // can 502 AtomVM.mjs. GitHub Pages still needs the SW for those headers.
+    // Cross-origin isolation for AtomVM (SharedArrayBuffer + module workers):
+    // - Localhost: server.exs already sends COOP/COEP/CORP — do NOT use the SW
+    //   (it can break pthread reloads of AtomVM.mjs).
+    // - GitHub Pages / hosts without those headers: keep the COI service worker
+    //   registered and controlling forever. Unregistering after isolation is
+    //   achieved leaves worker fetches of AtomVM.mjs without CORP → COEP blocks them.
     (function () {
       function loadApp() {
         var s = document.createElement("script");
@@ -41,38 +43,70 @@
         document.body.appendChild(s);
       }
 
+      var host = location.hostname;
+      var isLocal =
+        host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+
       if (!("serviceWorker" in navigator)) return loadApp();
 
-      // Already isolated (local Bandit headers) — drop any old COI SW and boot.
-      if (window.crossOriginIsolated) {
-        navigator.serviceWorker.getRegistrations().then(function (regs) {
-          return Promise.all(regs.map(function (r) { return r.unregister(); }));
-        }).catch(function () {}).then(loadApp);
+      if (isLocal) {
+        // Prefer native server headers; clear any leftover COI SW from Pages testing.
+        navigator.serviceWorker
+          .getRegistrations()
+          .then(function (regs) {
+            return Promise.all(
+              regs.map(function (r) {
+                return r.unregister();
+              }),
+            );
+          })
+          .catch(function () {})
+          .then(loadApp);
         return;
       }
 
-      var swVersion = "20260722-1";
+      // Production static hosts (e.g. GitHub Pages): COI SW is required.
+      var swVersion = "20260722-3";
 
-      navigator.serviceWorker.register("coi-serviceworker.js?v=" + swVersion).then(function (reg) {
-        // Already controlling this page — safe to load
-        if (navigator.serviceWorker.controller) return loadApp();
+      navigator.serviceWorker
+        .register("coi-serviceworker.js?v=" + swVersion)
+        .then(function (reg) {
+          // Force update check so require-corp + CORP SW replaces older builds.
+          try {
+            reg.update();
+          } catch (_e) {}
 
-        // SW just activated for the first time — reload so it intercepts all fetches
-        var sw = reg.installing || reg.waiting;
-        if (sw) {
-          sw.addEventListener("statechange", function (e) {
-            if (e.target.state === "activated") window.location.reload();
-          });
-        } else {
-          // SW was already installed but not yet controlling (waiting for claim)
-          navigator.serviceWorker.addEventListener("controllerchange", function () {
-            window.location.reload();
-          });
-        }
-      }).catch(function (err) {
-        console.error("SW registration failed:", err);
-        loadApp(); // degrade gracefully (won't work on GH Pages without COEP, but try)
-      });
+          if (navigator.serviceWorker.controller) {
+            // If a new SW is waiting, activate it then reload once so workers
+            // pick up require-corp + CORP (old SWs used credentialless).
+            if (reg.waiting) {
+              var reloaded = false;
+              navigator.serviceWorker.addEventListener("controllerchange", function () {
+                if (reloaded) return;
+                reloaded = true;
+                window.location.reload();
+              });
+              reg.waiting.postMessage({ type: "SKIP_WAITING" });
+              return;
+            }
+            return loadApp();
+          }
+
+          var sw = reg.installing || reg.waiting;
+          if (sw) {
+            sw.addEventListener("statechange", function (e) {
+              if (e.target.state === "activated") window.location.reload();
+            });
+          } else {
+            navigator.serviceWorker.addEventListener("controllerchange", function () {
+              window.location.reload();
+            });
+          }
+        })
+        .catch(function (err) {
+          console.error("SW registration failed:", err);
+          loadApp();
+        });
     })();
   </script>
 </body>

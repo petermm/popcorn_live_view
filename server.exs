@@ -46,13 +46,17 @@ defmodule Router do
   end
 
   def add_headers(conn, _opts) do
+    # Match Popcorn's server: require-corp + CORP so module workers can load
+    # AtomVM.mjs / AtomVM.wasm under cross-origin isolation. credentialless
+    # alone is rejected by Safari/WebKit for dedicated module workers.
     Plug.Conn.merge_resp_headers(
       conn,
       [
         {"Access-Control-Allow-Origin", "*"},
         {"Cache-Control", "public no-cache"},
         {"Cross-Origin-Opener-Policy", "same-origin"},
-        {"Cross-Origin-Embedder-Policy", "credentialless"}
+        {"Cross-Origin-Embedder-Policy", "require-corp"},
+        {"Cross-Origin-Resource-Policy", "cross-origin"}
       ]
     )
   end

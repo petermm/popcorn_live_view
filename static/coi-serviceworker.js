@@ -1,7 +1,8 @@
 /*
- * coi-serviceworker — injects Cross-Origin-Opener-Policy: same-origin and
- * Cross-Origin-Embedder-Policy: credentialless headers so SharedArrayBuffer
- * works on hosts (like GitHub Pages) that don't support custom HTTP headers.
+ * coi-serviceworker — injects Cross-Origin-Opener-Policy: same-origin,
+ * Cross-Origin-Embedder-Policy: require-corp, and Cross-Origin-Resource-Policy:
+ * cross-origin so SharedArrayBuffer + AtomVM module workers work on hosts
+ * (like GitHub Pages) that don't support custom HTTP headers.
  *
  * Adapted from https://github.com/gzuidhof/coi-serviceworker (MIT)
  *
@@ -15,6 +16,13 @@
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+
+// Allow the page to kick a waiting worker into place after register().update().
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
 
 self.addEventListener("fetch", function (event) {
   if (
@@ -86,15 +94,11 @@ async function handleSameOrigin(request) {
     const headers = new Headers(response.headers);
 
     // Our own pages/assets: inject full cross-origin isolation headers so
-    // SharedArrayBuffer / WASM threads work.
+    // SharedArrayBuffer / WASM threads (and AtomVM module workers) work.
+    // Prefer require-corp + CORP everywhere — credentialless is rejected by
+    // Safari/WebKit when spawning dedicated module workers for AtomVM.mjs.
     headers.set("Cross-Origin-Opener-Policy", "same-origin");
-    const isSafari =
-      /Safari\//.test(self.navigator.userAgent) &&
-      !/Chrome\//.test(self.navigator.userAgent);
-    headers.set(
-      "Cross-Origin-Embedder-Policy",
-      isSafari ? "require-corp" : "credentialless",
-    );
+    headers.set("Cross-Origin-Embedder-Policy", "require-corp");
     headers.set("Cross-Origin-Resource-Policy", "cross-origin");
 
     // When constructing a new Response around an existing body stream, drop
