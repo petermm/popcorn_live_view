@@ -95,13 +95,29 @@ defmodule WasmLiveView.RuntimeStatsLive do
     let memBytes = null;
     let memSource = null;
 
+    // Popcorn 0.3 AtomVM is built without wasmMemory/HEAP* in
+    // EXPORTED_RUNTIME_METHODS. Emscripten installs aborting getters for those
+    // names, so even optional chaining (`wasm.wasmMemory?.x`) aborts the VM.
+    // Only read data properties (value present); skip accessor traps.
+    const safeGet = (obj, key) => {
+      if (!obj || (typeof obj !== "object" && typeof obj !== "function")) return undefined;
+      try {
+        const desc = Object.getOwnPropertyDescriptor(obj, key);
+        if (!desc || !("value" in desc)) return undefined;
+        return desc.value;
+      } catch (_e) {
+        return undefined;
+      }
+    };
+
     const wasmMemorySources = [
-      ["wasm.wasmMemory.buffer", wasm.wasmMemory?.buffer],
-      ["wasm.HEAPU8.buffer", wasm.HEAPU8?.buffer],
-      ["wasm.HEAP8.buffer", wasm.HEAP8?.buffer]
+      ["wasm.wasmMemory.buffer", () => safeGet(safeGet(wasm, "wasmMemory"), "buffer")],
+      ["wasm.HEAPU8.buffer", () => safeGet(safeGet(wasm, "HEAPU8"), "buffer")],
+      ["wasm.HEAP8.buffer", () => safeGet(safeGet(wasm, "HEAP8"), "buffer")]
     ];
 
-    for (const [source, buffer] of wasmMemorySources) {
+    for (const [source, getBuffer] of wasmMemorySources) {
+      const buffer = getBuffer();
       if (buffer && typeof buffer.byteLength === "number") {
         memBytes = buffer.byteLength;
         memSource = source;

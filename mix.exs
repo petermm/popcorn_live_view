@@ -116,10 +116,65 @@ defmodule WasmLiveView.MixProject do
       end
 
       File.cp!(src, dest)
-      gzip_asset!(dest)
+    end
+
+    # AtomVM is built without wasmMemory/HEAP* exported. Emscripten then installs
+    # aborting getters for those names. Export the real locals so run_js can
+    # inspect linear memory (e.g. runtime-stats) without killing the VM.
+    patch_atomvm_exports!(Path.join(out_dir, "AtomVM.mjs"))
+
+    for name <- @popcorn_runtime_files do
+      gzip_asset!(Path.join(out_dir, name))
     end
 
     Mix.shell().info("Copied AtomVM runtime to #{out_dir}/")
+  end
+
+  defp patch_atomvm_exports!(path) do
+    source = File.read!(path)
+
+    # Idempotent: already patched.
+    if String.contains?(source, "/* popcorn_live_view:export_wasm_memory */") do
+      :ok
+    else
+      # Emscripten installs configurable aborting getters for unexported names.
+      # Replace them with real data properties after HEAP* views are created.
+      marker =
+        "function updateMemoryViews() {\n  var b = wasmMemory.buffer;\n  HEAP8 = new Int8Array(b);\n  HEAP16 = new Int16Array(b);\n  HEAPU8 = new Uint8Array(b);\n  HEAP32 = new Int32Array(b);\n  HEAPU32 = new Uint32Array(b);\n  HEAPF32 = new Float32Array(b);\n  HEAPF64 = new Float64Array(b);\n  HEAP64 = new BigInt64Array(b);\n  new BigUint64Array(b);\n}"
+
+      export_snip =
+        "function updateMemoryViews() {\n" <>
+          "  var b = wasmMemory.buffer;\n" <>
+          "  HEAP8 = new Int8Array(b);\n" <>
+          "  HEAP16 = new Int16Array(b);\n" <>
+          "  HEAPU8 = new Uint8Array(b);\n" <>
+          "  HEAP32 = new Int32Array(b);\n" <>
+          "  HEAPU32 = new Uint32Array(b);\n" <>
+          "  HEAPF32 = new Float32Array(b);\n" <>
+          "  HEAPF64 = new Float64Array(b);\n" <>
+          "  HEAP64 = new BigInt64Array(b);\n" <>
+          "  new BigUint64Array(b);\n" <>
+          "  /* popcorn_live_view:export_wasm_memory */\n" <>
+          "  var __exportMem = (k, v) => Object.defineProperty(Module, k, {value: v, writable: true, configurable: true});\n" <>
+          "  __exportMem(\"wasmMemory\", wasmMemory);\n" <>
+          "  __exportMem(\"HEAP8\", HEAP8);\n" <>
+          "  __exportMem(\"HEAPU8\", HEAPU8);\n" <>
+          "  __exportMem(\"HEAP16\", HEAP16);\n" <>
+          "  __exportMem(\"HEAP32\", HEAP32);\n" <>
+          "  __exportMem(\"HEAPU32\", HEAPU32);\n" <>
+          "  __exportMem(\"HEAPF32\", HEAPF32);\n" <>
+          "  __exportMem(\"HEAPF64\", HEAPF64);\n" <>
+          "}"
+
+      if String.contains?(source, marker) do
+        File.write!(path, String.replace(source, marker, export_snip, global: false))
+      else
+        Mix.shell().info(
+          "warning: could not patch AtomVM.mjs memory exports (marker not found); " <>
+            "runtime-stats will skip wasm memory probes"
+        )
+      end
+    end
   end
 
   defp compile_stubs do
