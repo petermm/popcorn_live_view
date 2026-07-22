@@ -53,7 +53,11 @@ defmodule WasmLiveView.MixProject do
   defp aliases do
     [
       cook: &cook/1,
-      "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
+      "assets.setup": [
+        "tailwind.install --if-missing",
+        "esbuild.install --if-missing",
+        "cmd npm install --prefix assets"
+      ],
       "assets.build": ["compile", "tailwind wasm_live_view", "esbuild wasm_live_view"],
       "assets.deploy": [
         "tailwind wasm_live_view --minify",
@@ -66,25 +70,56 @@ defmodule WasmLiveView.MixProject do
 
   @stubs_dir "stubs"
   @stubs_out "_build/stubs"
+  # Popcorn 0.3.x no longer ships AtomVM via include_vm; runtime comes from the npm package.
+  @popcorn_npm_dist "assets/node_modules/@swmansion/popcorn/dist"
+  @popcorn_runtime_files ~w(AtomVM.mjs AtomVM.wasm iframe.mjs popcorn.mjs bridge.mjs types.mjs errors.mjs index.mjs)
 
   defp cook(_) do
     Mix.Task.run("compile")
     Mix.Task.run("app.config")
+    ensure_popcorn_npm!()
     Mix.Task.run("tailwind", ["wasm_live_view"])
     Mix.Task.run("esbuild", ["wasm_live_view"])
 
-    # Popcorn 0.2.x already bundles Mix deps from _build/lib/*/ebin.
+    # Popcorn already bundles Mix deps from _build/lib/*/ebin.
     # Add AtomVM-specific stubs plus OTP-only beams needed in the browser runtime.
     compile_stubs()
     stub_beams = Path.wildcard(Path.join([@stubs_out, "*.beam"]))
     syntax_tools_beams = otp_app_beams(:syntax_tools)
 
-    Popcorn.cook(
-      extra_beams: syntax_tools_beams ++ stub_beams,
-      include_vm: true
-    )
+    Popcorn.cook(extra_beams: syntax_tools_beams ++ stub_beams)
 
-    patch_popcorn_iframe_casts!()
+    # Cook only writes bundle.avm; copy AtomVM + JS glue from @swmansion/popcorn.
+    copy_popcorn_runtime!()
+  end
+
+  defp ensure_popcorn_npm! do
+    unless File.dir?(@popcorn_npm_dist) do
+      Mix.shell().info("Installing @swmansion/popcorn npm package...")
+      0 = Mix.shell().cmd("npm install --prefix assets")
+    end
+  end
+
+  defp copy_popcorn_runtime! do
+    out_dir = Application.get_env(:popcorn, :out_dir) || "static/wasm"
+    File.mkdir_p!(out_dir)
+
+    for name <- @popcorn_runtime_files do
+      src = Path.join(@popcorn_npm_dist, name)
+      dest = Path.join(out_dir, name)
+
+      unless File.exists?(src) do
+        Mix.raise("""
+        Missing Popcorn runtime file #{src}.
+        Run `npm install --prefix assets` (or `mix assets.setup`) first.
+        """)
+      end
+
+      File.cp!(src, dest)
+      gzip_asset!(dest)
+    end
+
+    Mix.shell().info("Copied AtomVM runtime to #{out_dir}/")
   end
 
   defp compile_stubs do
@@ -140,64 +175,6 @@ defmodule WasmLiveView.MixProject do
       beams -> beams
     end
   end
-
-  defp patch_popcorn_iframe_casts! do
-    path = Path.join(["static", "wasm", "popcorn_iframe.js"])
-    source = File.read!(path)
-
-    source =
-      source
-      |> patch_iframe_cast_listener()
-      |> patch_iframe_cast_handler()
-
-    File.write!(path, source)
-    gzip_asset!(path)
-  end
-
-  defp patch_iframe_cast_listener(source) do
-    old = """
-        if (type === MESSAGES.CALL) {
-          await handleCall(data);
-        } else if (type.startsWith("popcorn")) {
-    """
-
-    new = """
-        if (type === MESSAGES.CALL) {
-          await handleCall(data);
-        } else if (type === MESSAGES.CAST) {
-          handleCast(data.value);
-        } else if (type.startsWith("popcorn")) {
-    """
-
-    cond do
-      String.contains?(source, "else if (type === MESSAGES.CAST)") -> source
-      String.contains?(source, old) -> String.replace(source, old, new, global: false)
-      true -> raise "Expected Popcorn iframe listener pattern not found in #{path_for_error()}"
-    end
-  end
-
-  defp patch_iframe_cast_handler(source) do
-    old = """
-    function ensureFunctionEval(maybeFunction) {
-    """
-
-    new = """
-    function handleCast(request) {
-      const { process, args } = request;
-      Module.cast(process, args);
-    }
-
-    function ensureFunctionEval(maybeFunction) {
-    """
-
-    cond do
-      String.contains?(source, "function handleCast(request)") -> source
-      String.contains?(source, old) -> String.replace(source, old, new, global: false)
-      true -> raise "Expected Popcorn handleCast insertion point not found in #{path_for_error()}"
-    end
-  end
-
-  defp path_for_error, do: Path.join(["static", "wasm", "popcorn_iframe.js"])
 
   defp gzip_asset!(path) do
     path

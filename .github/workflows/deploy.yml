@@ -22,7 +22,8 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "26.0"
+          # Popcorn 0.3.x requires exact OTP 26.0.2 when compiling the dep.
+          otp-version: "26.0.2"
           elixir-version: "1.17.3"
 
       - uses: actions/setup-node@v4
@@ -41,13 +42,15 @@ jobs:
         env:
           SCRIPT_NAME: /popcorn_live_view
 
-      - name: Patch Popcorn bundle path for GitHub Pages
+      - name: Verify AtomVM runtime artifacts
         run: |
           set -euo pipefail
-          target="static/wasm/popcorn.js"
-          test -f "$target"
-          node -e 'const fs=require("fs");const p=process.argv[1];const oldValue="${\"../\" + this._bundlePath}";const newValue="${\"/\" + this._bundlePath.replace(/^\\/+/, \"\")}";const src=fs.readFileSync(p,"utf8");if(src.includes(newValue)){console.log("Popcorn bundle path already patched");process.exit(0)};if(!src.includes(oldValue)){throw new Error("Expected Popcorn bundle-path pattern not found in "+p)};fs.writeFileSync(p, src.replace(oldValue,newValue));console.log("Patched Popcorn bundle path for GitHub Pages");' "$target"
-          grep -n 'meta name="bundle-path"' "$target"
+          test -f static/wasm/bundle.avm
+          test -f static/wasm/AtomVM.wasm
+          test -f static/wasm/AtomVM.mjs
+          test -f static/wasm/popcorn.mjs
+          test -f static/wasm/iframe.mjs
+          ls -la static/wasm/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

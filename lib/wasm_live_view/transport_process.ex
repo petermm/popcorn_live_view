@@ -20,7 +20,7 @@ defmodule WasmLiveView.TransportProcess do
 
   @impl true
   def init([]) do
-    Popcorn.Wasm.register(@process_name)
+    Popcorn.Wasm.ready(@process_name)
     {:ok, %{channel_pid: nil, join_ref: nil, topic: nil}}
   end
 

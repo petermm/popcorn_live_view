@@ -17,13 +17,16 @@ const Hooks = {
 async function setup() {
   console.log("[WasmLiveView] Initializing Popcorn...");
 
-  // Popcorn is loaded dynamically (external to the bundle, served from /wasm/)
+  // Popcorn JS + AtomVM are served from /wasm/ (copied from @swmansion/popcorn at cook time)
   const { Popcorn } = await import(
-    /* @vite-ignore */ BASE_URL + "wasm/popcorn.js"
+    /* @vite-ignore */ BASE_URL + "wasm/popcorn.mjs"
   );
 
+  // Absolute path so GH Pages subpaths resolve correctly (Popcorn 0.3 uses bundlePaths).
+  const bundlePath = new URL("wasm/bundle.avm", BASE_URL).pathname;
+
   const popcorn = await Popcorn.init({
-    bundlePath: new URL(BASE_URL).pathname.slice(1) + "wasm/bundle.avm",
+    bundlePaths: [bundlePath],
     onStdout: (msg) => console.log("[WASM stdout]", msg),
     onStderr: (msg) => console.error("[WASM stderr]", msg),
   });

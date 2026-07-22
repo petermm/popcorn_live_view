@@ -1,0 +1,7 @@
+{
+  "name": "wasm_live_view",
+  "private": true,
+  "dependencies": {
+    "@swmansion/popcorn": "0.3.2"
+  }
+}
