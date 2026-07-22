@@ -31,7 +31,7 @@ defmodule WasmLiveView.MixProject do
       {:req, "~> 0.5.17", runtime: false},
       {:phoenix, "~> 1.8", runtime: false},
       {:phoenix_live_view,
-       github: "SteffenDE/phoenix_live_view", branch: "sd-popcorn", override: true, runtime: false},
+       github: "petermm/phoenix_live_view", branch: "popcorn", override: true, runtime: false},
       {:phoenix_html, "~> 4.1", runtime: false},
       {:phoenix_ecto, "~> 4.6", runtime: false},
       {:ecto, "~> 3.12", runtime: false},

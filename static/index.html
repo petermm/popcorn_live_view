@@ -29,13 +29,29 @@
     })();
   </script>
   <script>
-    // Install the COI service worker (needed on GitHub Pages which can't set HTTP headers).
-    // The SW injects Cross-Origin-Opener-Policy + Cross-Origin-Embedder-Policy so
-    // SharedArrayBuffer / WASM threads work. We must not load app.js until the SW
-    // controls this page, otherwise fetches escape without the required headers.
+    // Install the COI service worker only when the page is NOT already
+    // cross-origin isolated. Local server.exs sets COOP/COEP itself; registering
+    // the SW there rewrites every fetch (including AtomVM pthread workers) and
+    // can 502 AtomVM.mjs. GitHub Pages still needs the SW for those headers.
     (function () {
+      function loadApp() {
+        var s = document.createElement("script");
+        s.type = "module";
+        s.src = "assets/app.js";
+        document.body.appendChild(s);
+      }
+
       if (!("serviceWorker" in navigator)) return loadApp();
-      var swVersion = "20260309-1";
+
+      // Already isolated (local Bandit headers) — drop any old COI SW and boot.
+      if (window.crossOriginIsolated) {
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          return Promise.all(regs.map(function (r) { return r.unregister(); }));
+        }).catch(function () {}).then(loadApp);
+        return;
+      }
+
+      var swVersion = "20260722-1";
 
       navigator.serviceWorker.register("coi-serviceworker.js?v=" + swVersion).then(function (reg) {
         // Already controlling this page — safe to load
@@ -57,13 +73,6 @@
         console.error("SW registration failed:", err);
         loadApp(); // degrade gracefully (won't work on GH Pages without COEP, but try)
       });
-
-      function loadApp() {
-        var s = document.createElement("script");
-        s.type = "module";
-        s.src = "assets/app.js";
-        document.body.appendChild(s);
-      }
     })();
   </script>
 </body>
