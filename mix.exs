@@ -23,7 +23,7 @@ defmodule WasmLiveView.MixProject do
   defp deps do
     [
       {:easel, github: "petermm/easel", runtime: false},
-      {:popcorn, "~> 0.2.2"},
+      {:popcorn, "~> 0.3.2"},
       # {:popcorn, path: "../popcorn"},
       {:atomvm_packbeam,
        github: "petermm/atomvm_packbeam", branch: "atomvm-compat", runtime: false},
