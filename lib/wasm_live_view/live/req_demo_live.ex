@@ -5,13 +5,17 @@ defmodule WasmLiveView.ReqDemoLive do
 
   @adapter &WasmLiveView.WasmFetchAdapter.run/1
 
+  # httpbin.org is frequently flaky (5xx without CORS headers), which the browser
+  # reports as a CORS failure. Prefer httpbingo.org — same API, more reliable ACAO.
+  @echo_host "https://httpbingo.org"
+
   @demos [
     %{
       id: :uuid,
       label: "UUID",
       desc:
         "Basic GET — resp.body is automatically decoded to an Elixir map via decode_body: true",
-      url: "https://httpbin.org/uuid",
+      url: "#{@echo_host}/uuid",
       method: :get,
       body: nil,
       params: nil,
@@ -22,7 +26,7 @@ defmodule WasmLiveView.ReqDemoLive do
       id: :params,
       label: "Query Params",
       desc: "Use params: to attach query params — Req builds and appends the query string",
-      url: "https://httpbin.org/get",
+      url: "#{@echo_host}/get",
       method: :get,
       body: nil,
       params: %{"hello" => "atomvm", "runtime" => "wasm"},
@@ -33,7 +37,7 @@ defmodule WasmLiveView.ReqDemoLive do
       id: :headers,
       label: "Custom Headers",
       desc: "Send extra request headers and see them echoed back by the server",
-      url: "https://httpbin.org/headers",
+      url: "#{@echo_host}/headers",
       method: :get,
       body: nil,
       params: nil,
@@ -44,7 +48,7 @@ defmodule WasmLiveView.ReqDemoLive do
       id: :ip,
       label: "My IP",
       desc: "Minimal JSON response — just the caller's public IP address",
-      url: "https://httpbin.org/ip",
+      url: "#{@echo_host}/ip",
       method: :get,
       body: nil,
       params: nil,
@@ -55,7 +59,7 @@ defmodule WasmLiveView.ReqDemoLive do
       id: :teapot,
       label: "418 Teapot",
       desc: "Non-2xx status — body stays as binary, no JSON decode attempted",
-      url: "https://httpbin.org/status/418",
+      url: "#{@echo_host}/status/418",
       method: :get,
       body: nil,
       params: nil,
@@ -66,8 +70,8 @@ defmodule WasmLiveView.ReqDemoLive do
       id: :gzip,
       label: "Gzip",
       desc:
-        "httpbin serves a gzip-compressed body — but the browser's fetch() always decompresses and strips content-encoding before exposing the response. AtomVM sees plain text with no special handling needed.",
-      url: "https://httpbin.org/gzip",
+        "Echo server serves a gzip-compressed body — but the browser's fetch() always decompresses and strips content-encoding before exposing the response. AtomVM sees plain text with no special handling needed.",
+      url: "#{@echo_host}/gzip",
       method: :get,
       body: nil,
       params: nil,
@@ -78,7 +82,7 @@ defmodule WasmLiveView.ReqDemoLive do
       id: :post,
       label: "POST JSON",
       desc: "POST with JSON — use json: to let Req encode the body and set content-type",
-      url: "https://httpbin.org/post",
+      url: "#{@echo_host}/post",
       method: :post,
       body: %{"hello" => "from AtomVM", "runtime" => "wasm", "library" => "Req"},
       params: nil,
@@ -88,7 +92,7 @@ defmodule WasmLiveView.ReqDemoLive do
     %{
       id: :custom,
       label: "Custom",
-      desc: "Enter your own GET endpoint",
+      desc: "Enter your own CORS-enabled GET endpoint",
       url: nil,
       method: :get,
       body: nil,
@@ -123,7 +127,7 @@ defmodule WasmLiveView.ReqDemoLive do
 
     url =
       if demo.id == :custom,
-        do: Map.get(params, "url", "https://httpbin.org/get"),
+        do: Map.get(params, "url", "#{@echo_host}/get"),
         else: demo.url
 
     lv = self()
@@ -294,7 +298,7 @@ defmodule WasmLiveView.ReqDemoLive do
           <input
             type="text"
             name="url"
-            value="https://httpbin.org/get"
+            value={"#{@echo_host}/get"}
             class="bg-transparent flex-1 text-xs font-mono outline-none"
             placeholder="https://..."
           />
