@@ -1,15 +1,12 @@
 defmodule WasmLiveView.TransportProcess do
   @moduledoc """
-  Bridge between Popcorn's WASM postMessage layer and Phoenix.LiveView.Channel.
+  Bridge between Popcorn's OTP/BEAM wasm genserver proxy and Phoenix.LiveView.Channel.
 
   Acts as the transport_pid directly — bypasses Phoenix.Socket entirely.
   Builds a %Phoenix.Socket{} struct manually, calls Channel.Server.join,
   and sends %Phoenix.Socket.Message{} structs to the channel pid.
   """
   use GenServer
-
-  import Popcorn.Wasm, only: [is_wasm_message: 1]
-  alias Popcorn.Wasm
 
   @process_name :main
   @serializer Phoenix.Socket.V2.JSONSerializer
@@ -20,16 +17,43 @@ defmodule WasmLiveView.TransportProcess do
 
   @impl true
   def init([]) do
-    Popcorn.Wasm.ready(@process_name)
     {:ok, %{channel_pid: nil, join_ref: nil, topic: nil}}
   end
 
   @impl true
-  def handle_info(raw_msg, state) when is_wasm_message(raw_msg) do
-    state = Wasm.handle_message!(raw_msg, &handle_wasm(&1, state))
+  def handle_call(%{"type" => "transport_connect"}, _from, state) do
+    {:reply, "ok", state}
+  end
+
+  def handle_call(request, _from, state) do
+    IO.puts("[TransportProcess] Unhandled call: #{inspect(request)}")
+    {:reply, {:error, :unhandled}, state}
+  end
+
+  @impl true
+  def handle_cast(%{"type" => "channel_msg", "payload" => json}, state) do
+    {:noreply, handle_channel_msg(json, state)}
+  end
+
+  def handle_cast(%{"type" => "transport_close"}, state) do
+    if state.channel_pid do
+      send(state.channel_pid, %Phoenix.Socket.Message{
+        topic: state.topic,
+        event: "phx_leave",
+        ref: nil,
+        join_ref: state.join_ref
+      })
+    end
+
     {:noreply, state}
   end
 
+  def handle_cast(msg, state) do
+    IO.puts("[TransportProcess] Unhandled cast: #{inspect(msg)}")
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info({:socket_push, opcode, payload}, state) do
     push_to_js(opcode, payload)
     {:noreply, state}
@@ -52,13 +76,7 @@ defmodule WasmLiveView.TransportProcess do
     {:noreply, state}
   end
 
-  ## Wasm message handling
-
-  defp handle_wasm({:wasm_call, %{"type" => "transport_connect"}}, state) do
-    {:resolve, "ok", state}
-  end
-
-  defp handle_wasm({:wasm_cast, %{"type" => "channel_msg", "payload" => json}}, state) do
+  defp handle_channel_msg(json, state) do
     message = @serializer.decode!(json, opcode: :text)
 
     case {message.event, state.channel_pid} do
@@ -74,20 +92,6 @@ defmodule WasmLiveView.TransportProcess do
     end
   end
 
-  defp handle_wasm({:wasm_cast, %{"type" => "transport_close"}}, state) do
-    if state.channel_pid, do: send(state.channel_pid, %Phoenix.Socket.Message{
-      topic: state.topic, event: "phx_leave", ref: nil, join_ref: state.join_ref
-    })
-    state
-  end
-
-  defp handle_wasm(msg, state) do
-    IO.puts("[TransportProcess] Unhandled wasm message: #{inspect(msg)}")
-    state
-  end
-
-  ## Join
-
   defp handle_join(message, state) do
     socket = %Phoenix.Socket{
       transport_pid: self(),
@@ -102,30 +106,32 @@ defmodule WasmLiveView.TransportProcess do
 
     case Phoenix.Channel.Server.join(socket, WasmLiveView.Channel, message, opts) do
       {:ok, reply, pid} ->
-        encoded = @serializer.encode!(%Phoenix.Socket.Reply{
-          join_ref: message.join_ref,
-          ref: message.ref,
-          topic: message.topic,
-          status: :ok,
-          payload: reply
-        })
+        encoded =
+          @serializer.encode!(%Phoenix.Socket.Reply{
+            join_ref: message.join_ref,
+            ref: message.ref,
+            topic: message.topic,
+            status: :ok,
+            payload: reply
+          })
+
         push_to_js_encoded(encoded)
         %{state | channel_pid: pid, join_ref: message.join_ref, topic: message.topic}
 
       {:error, reply} ->
-        encoded = @serializer.encode!(%Phoenix.Socket.Reply{
-          join_ref: message.join_ref,
-          ref: message.ref,
-          topic: message.topic,
-          status: :error,
-          payload: reply
-        })
+        encoded =
+          @serializer.encode!(%Phoenix.Socket.Reply{
+            join_ref: message.join_ref,
+            ref: message.ref,
+            topic: message.topic,
+            status: :error,
+            payload: reply
+          })
+
         push_to_js_encoded(encoded)
         state
     end
   end
-
-  ## Push to JS
 
   defp push_to_js_encoded({:socket_push, opcode, payload}) do
     push_to_js(opcode, payload)
@@ -139,16 +145,6 @@ defmodule WasmLiveView.TransportProcess do
         other -> inspect(other)
       end
 
-    Popcorn.Wasm.run_js(
-      """
-      ({ args }) => {
-        if (window.__popcornTransportReceive) {
-          window.__popcornTransportReceive(args.data);
-        }
-        return [];
-      }
-      """,
-      %{data: data}
-    )
+    Popcorn.Wasm.send(%{type: "channel_msg", payload: data})
   end
 end

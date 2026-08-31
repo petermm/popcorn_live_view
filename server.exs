@@ -46,9 +46,9 @@ defmodule Router do
   end
 
   def add_headers(conn, _opts) do
-    # Match Popcorn's server: require-corp + CORP so module workers can load
-    # AtomVM.mjs / AtomVM.wasm under cross-origin isolation. credentialless
-    # alone is rejected by Safari/WebKit for dedicated module workers.
+    # Match Popcorn's server: require-corp + CORP so the OTP/BEAM wasm worker
+    # can load under cross-origin isolation. credentialless alone is rejected
+    # by Safari/WebKit for dedicated module workers.
     Plug.Conn.merge_resp_headers(
       conn,
       [

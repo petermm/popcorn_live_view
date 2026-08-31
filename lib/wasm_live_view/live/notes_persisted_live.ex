@@ -73,7 +73,8 @@ defmodule WasmLiveView.NotesPersistedLive do
   defp update_note(socket, note, params) do
     ts = :erlang.system_time(:second)
 
-    case Note.changeset(%{note | updated_at: ts}, params) |> Ecto.Changeset.apply_action(:update) do
+    case Note.changeset(%{note | updated_at: ts}, params)
+         |> Ecto.Changeset.apply_action(:update) do
       {:ok, updated} ->
         notes =
           Enum.map(socket.assigns.notes, fn n -> if n.id == updated.id, do: updated, else: n end)
@@ -94,9 +95,8 @@ defmodule WasmLiveView.NotesPersistedLive do
   # WASM directly reads from localStorage — no JS hook needed
   defp load_from_storage do
     case Popcorn.Wasm.run_js(
-           "({ args }) => { return [localStorage.getItem(args.key)]; }",
-           %{key: @storage_key},
-           return: :value
+           "(args) => localStorage.getItem(args.key)",
+           %{key: @storage_key}
          ) do
       {:ok, nil} ->
         []
@@ -125,7 +125,7 @@ defmodule WasmLiveView.NotesPersistedLive do
     json = Jason.encode!(Enum.map(notes, &Map.from_struct/1))
 
     Popcorn.Wasm.run_js(
-      "({ args }) => { localStorage.setItem(args.key, args.json); return []; }",
+      "(args) => { localStorage.setItem(args.key, args.json); }",
       %{key: @storage_key, json: json}
     )
   end

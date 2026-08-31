@@ -3,5 +3,8 @@ static/assets/
 deps/
 _build/
 assets/node_modules/
+vendor/popcorn/sources/
+vendor/popcorn/out/
 erl_crash.dump
+.DS_Store
 

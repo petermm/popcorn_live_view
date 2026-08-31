@@ -1,28 +1,6 @@
 import Config
 
-config :popcorn,
-  out_dir: "static/wasm",
-  add_tracing: false,
-  extra_apps: [:iex]
-
 config :phoenix, :json_library, Jason
-
-config :esbuild,
-  version: "0.25.0",
-  wasm_live_view: [
-    args: ~w(
-      js/app.js
-      --bundle
-      --format=esm
-      --outdir=../static/assets
-      --external:/wasm/*
-    ),
-    cd: Path.expand("../assets", __DIR__),
-    env: %{
-      "NODE_PATH" =>
-        Path.expand("../deps", __DIR__) <> ":" <> Mix.Project.build_path()
-    }
-  ]
 
 # Configure tailwind (the version is required)
 config :tailwind,

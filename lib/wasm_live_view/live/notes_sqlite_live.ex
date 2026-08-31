@@ -95,18 +95,17 @@ defmodule WasmLiveView.NotesSqliteLive do
   defp db_list do
     case Popcorn.Wasm.run_js(
            """
-           ({ }) => {
+           () => {
              const db = window.__sqliteDB;
-             if (!db) return [JSON.stringify([])];
-             return [JSON.stringify(
+             if (!db) return JSON.stringify([]);
+             return JSON.stringify(
                db.selectObjects(
                  "SELECT id, title, body, inserted_at, updated_at FROM notes ORDER BY inserted_at DESC"
                )
-             )];
+             );
            }
            """,
-           %{},
-           return: :value
+           %{}
          ) do
       {:ok, json} when is_binary(json) ->
         json
@@ -151,7 +150,7 @@ defmodule WasmLiveView.NotesSqliteLive do
   defp db_search_ids(query, default_ids) do
     case Popcorn.Wasm.run_js(
            """
-           ({ args }) => {
+           (args) => {
              const db = window.__sqliteDB;
              const searchMode = window.__notesSearchMode || "like";
              const tokenizeQuery = (query) =>
@@ -253,11 +252,10 @@ defmodule WasmLiveView.NotesSqliteLive do
                rows = selectLikeRows(args.query);
              }
 
-             return [JSON.stringify(rows.map((row) => row.id))];
+             return JSON.stringify(rows.map((row) => row.id));
            }
            """,
-           %{query: query},
-           return: :value
+           %{query: query}
          ) do
       {:ok, json} when is_binary(json) ->
         Jason.decode!(json)
@@ -270,13 +268,12 @@ defmodule WasmLiveView.NotesSqliteLive do
   defp db_insert(%Note{title: title, body: body, inserted_at: ts, updated_at: uts}) do
     Popcorn.Wasm.run_js(
       """
-      ({ args }) => {
+      (args) => {
         window.__sqliteDB.exec({
           sql: "INSERT INTO notes (title, body, inserted_at, updated_at) VALUES (?, ?, ?, ?)",
           bind: [args.title, args.body, args.inserted_at, args.updated_at]
         });
         window.__sqliteSave();
-        return [];
       }
       """,
       %{title: title, body: body || "", inserted_at: ts, updated_at: uts}
@@ -286,13 +283,12 @@ defmodule WasmLiveView.NotesSqliteLive do
   defp db_update(%Note{id: id, title: title, body: body, updated_at: uts}) do
     Popcorn.Wasm.run_js(
       """
-      ({ args }) => {
+      (args) => {
         window.__sqliteDB.exec({
           sql: "UPDATE notes SET title = ?, body = ?, updated_at = ? WHERE id = ?",
           bind: [args.title, args.body, args.updated_at, args.id]
         });
         window.__sqliteSave();
-        return [];
       }
       """,
       %{id: id, title: title, body: body || "", updated_at: uts}
@@ -302,13 +298,12 @@ defmodule WasmLiveView.NotesSqliteLive do
   defp db_delete(id) do
     Popcorn.Wasm.run_js(
       """
-      ({ args }) => {
+      (args) => {
         window.__sqliteDB.exec({
           sql: "DELETE FROM notes WHERE id = ?",
           bind: [args.id]
         });
         window.__sqliteSave();
-        return [];
       }
       """,
       %{id: id}

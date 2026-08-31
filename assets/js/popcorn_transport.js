@@ -1,12 +1,11 @@
 /**
  * PopcornTransport - A WebSocket-compatible transport that bridges
- * Phoenix Channels over Popcorn's WASM postMessage layer.
+ * Phoenix Channels over Popcorn's OTP/BEAM wasm genserver proxy.
  *
  * Used as `transport` option for Phoenix.Socket:
  *   new LiveSocket("/live", Socket, { transport: PopcornTransport })
  */
 export default class PopcornTransport {
-  // WebSocket readyState constants
   static CONNECTING = 0;
   static OPEN = 1;
   static CLOSING = 2;
@@ -21,32 +20,42 @@ export default class PopcornTransport {
     this.binaryType = "arraybuffer";
     this.bufferedAmount = 0;
 
-    // Callbacks set by Phoenix.Socket
     this.onopen = null;
     this.onclose = null;
     this.onerror = null;
     this.onmessage = null;
 
-    // Skip heartbeat - no real network connection to keep alive
     this.skipHeartbeat = true;
+    this._unsubscribe = null;
 
-    // Register this transport instance for receiving messages from WASM
     window.__popcornTransportConn = this;
 
-    // Connect on next tick (mimics WebSocket async connect behavior)
     setTimeout(() => this._connect(), 0);
   }
 
   async _connect() {
     const popcorn = PopcornTransport._popcornInstance;
     if (!popcorn) {
-      console.error("PopcornTransport: No Popcorn instance set. Call PopcornTransport.setPopcornInstance() first.");
+      console.error(
+        "PopcornTransport: No Popcorn instance set. Call PopcornTransport.setPopcornInstance() first.",
+      );
       this.onerror && this.onerror("no_popcorn_instance");
       return;
     }
 
+    this._unsubscribe = popcorn.onEvent((event) => {
+      if (event && event.type === "channel_msg") {
+        this.receiveMessage(event.payload);
+      }
+    });
+
     try {
-      await popcorn.call({ type: "transport_connect" }, {});
+      const result = await popcorn.genserver.call(
+        "main",
+        { type: "transport_connect" },
+        { timeoutMs: 15_000 },
+      );
+      if (!result.ok) throw result.error;
       this.readyState = PopcornTransport.OPEN;
       this.onopen && this.onopen();
     } catch (e) {
@@ -62,21 +71,23 @@ export default class PopcornTransport {
       console.error("PopcornTransport: No Popcorn instance");
       return;
     }
-    // Fire-and-forget: channel protocol handles its own ack/reply pattern
-    popcorn.cast({ type: "channel_msg", payload: data }, {});
+    popcorn.genserver.cast("main", { type: "channel_msg", payload: data });
   }
 
   close(code, _reason) {
     const popcorn = PopcornTransport._popcornInstance;
     this.readyState = PopcornTransport.CLOSING;
+    if (this._unsubscribe) {
+      this._unsubscribe();
+      this._unsubscribe = null;
+    }
     if (popcorn) {
-      popcorn.cast({ type: "transport_close" }, {});
+      popcorn.genserver.cast("main", { type: "transport_close" });
     }
     this.readyState = PopcornTransport.CLOSED;
     this.onclose && this.onclose({ code: code || 1000 });
   }
 
-  // Called by WASM side (via run_js) to push messages back to the JS client
   receiveMessage(data) {
     console.debug("[PopcornTransport] recv:", data);
     if (this.onmessage) {
@@ -88,11 +99,3 @@ export default class PopcornTransport {
     PopcornTransport._popcornInstance = popcorn;
   }
 }
-
-// Global callback for WASM to push messages to the transport
-window.__popcornTransportReceive = function (data) {
-  const conn = window.__popcornTransportConn;
-  if (conn) {
-    conn.receiveMessage(data);
-  }
-};

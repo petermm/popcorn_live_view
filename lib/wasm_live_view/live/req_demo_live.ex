@@ -29,9 +29,9 @@ defmodule WasmLiveView.ReqDemoLive do
       url: "#{@echo_host}/get",
       method: :get,
       body: nil,
-      params: %{"hello" => "atomvm", "runtime" => "wasm"},
+      params: %{"hello" => "popcorn", "runtime" => "wasm"},
       extra_headers: nil,
-      snippet: ~S|Req.get!(uri, params: %{hello: "atomvm", runtime: "wasm"})|
+      snippet: ~S|Req.get!(uri, params: %{hello: "popcorn", runtime: "wasm"})|
     },
     %{
       id: :headers,
@@ -41,8 +41,8 @@ defmodule WasmLiveView.ReqDemoLive do
       method: :get,
       body: nil,
       params: nil,
-      extra_headers: [{"x-powered-by", "AtomVM"}, {"x-runtime", "wasm"}],
-      snippet: ~S|Req.get!(uri, headers: [{"x-powered-by", "AtomVM"}])|
+      extra_headers: [{"x-powered-by", "Popcorn"}, {"x-runtime", "wasm"}],
+      snippet: ~S|Req.get!(uri, headers: [{"x-powered-by", "Popcorn"}])|
     },
     %{
       id: :ip,
@@ -70,13 +70,14 @@ defmodule WasmLiveView.ReqDemoLive do
       id: :gzip,
       label: "Gzip",
       desc:
-        "Echo server serves a gzip-compressed body — but the browser's fetch() always decompresses and strips content-encoding before exposing the response. AtomVM sees plain text with no special handling needed.",
+        "Echo server serves a gzip-compressed body — but the browser's fetch() always decompresses and strips content-encoding before exposing the response. The wasm runtime sees plain text with no special handling needed.",
       url: "#{@echo_host}/gzip",
       method: :get,
       body: nil,
       params: nil,
       extra_headers: nil,
-      snippet: "Req.get!(uri, adapter: adapter)  # regular adapter, browser decompresses transparently"
+      snippet:
+        "Req.get!(uri, adapter: adapter)  # regular adapter, browser decompresses transparently"
     },
     %{
       id: :post,
@@ -84,10 +85,10 @@ defmodule WasmLiveView.ReqDemoLive do
       desc: "POST with JSON — use json: to let Req encode the body and set content-type",
       url: "#{@echo_host}/post",
       method: :post,
-      body: %{"hello" => "from AtomVM", "runtime" => "wasm", "library" => "Req"},
+      body: %{"hello" => "from Popcorn", "runtime" => "wasm", "library" => "Req"},
       params: nil,
       extra_headers: nil,
-      snippet: ~S|Req.post!(uri, json: %{hello: "from AtomVM"})|
+      snippet: ~S|Req.post!(uri, json: %{hello: "from Popcorn"})|
     },
     %{
       id: :custom,
@@ -136,10 +137,6 @@ defmodule WasmLiveView.ReqDemoLive do
     spawn(fn ->
       result =
         try do
-          # URI.new!/1 uses :uri_string.parse (available in AtomVM) rather than
-          # :re (unavailable in WASM). Passing a %URI{} to Req bypasses the
-          # regex-based URL normalisation — URI.parse(%URI{}) is a no-op.
-          # uri = URI.new!(url)
           uri = url
           # decode_body: true is the default — Req checks content-type via the MIME
           # package and calls Jason to decode JSON responses automatically.
@@ -233,7 +230,7 @@ defmodule WasmLiveView.ReqDemoLive do
     <.header>
       Req HTTP Demo
       <:subtitle>
-        Live HTTP requests via <strong>Req</strong> with a browser fetch adapter — running in AtomVM WASM.
+        Live HTTP requests via <strong>Req</strong> with a browser fetch adapter — running in OTP/BEAM wasm.
       </:subtitle>
     </.header>
 
@@ -316,24 +313,12 @@ defmodule WasmLiveView.ReqDemoLive do
       </div>
     </div>
 
-    <%!-- AtomVM constraint note --%>
-    <div class="mt-4 rounded-lg bg-base-200 border border-base-300 px-4 py-3 text-xs text-base-content/70 space-y-1">
-      <p class="font-semibold text-base-content/80">AtomVM constraint — no <code class="font-mono">:re</code> module</p>
-      <del>
-        Req calls <code class="font-mono">URI.parse/1</code> on URL strings, which uses <code class="font-mono">:re</code> internally — unavailable in WASM.
-        Instead we build a <code class="font-mono">%URI{}</code> via <code class="font-mono">URI.new!/1</code>
-        (backed by <code class="font-mono">:uri_string.parse/1</code>) and pass the struct.
-        <code class="font-mono">URI.parse(%URI{})</code> is then a no-op and the regex path is never hit.
-      </del>
-      <p>Solved by stubbing out the :re module</p>
-    </div>
-
     <%!-- Gzip note --%>
     <div :if={@active_demo.id == :gzip} class="mt-4 rounded-lg bg-info/10 border border-info/30 px-4 py-3 text-xs text-base-content/70 space-y-1">
       <p class="font-semibold text-base-content/80">Browser decompression is transparent</p>
       <p>
         The browser's <code class="font-mono">fetch()</code> API decompresses gzip/br responses and strips
-        <code class="font-mono">content-encoding</code> before exposing the body — so AtomVM sees plain text
+        <code class="font-mono">content-encoding</code> before exposing the body — so the wasm runtime sees plain text
         and Req needs no special handling. The same <code class="font-mono">WasmFetchAdapter</code> works.
       </p>
     </div>

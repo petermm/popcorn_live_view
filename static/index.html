@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="assets/css/app.css" />
   <title>LiveView in WASM</title>
-  <!-- fflate: synchronous inflate/deflate for zlib_stub.erl -->
-  <script src="fflate.js"></script>
 </head>
 <body>
   <div id="app">
@@ -29,12 +27,12 @@
     })();
   </script>
   <script>
-    // Cross-origin isolation for AtomVM (SharedArrayBuffer + module workers):
+    // Cross-origin isolation for OTP/BEAM wasm (SharedArrayBuffer + module workers):
     // - Localhost: server.exs already sends COOP/COEP/CORP — do NOT use the SW
-    //   (it can break pthread reloads of AtomVM.mjs).
+    //   (it can break pthread reloads of worker.mjs / beam.wasm).
     // - GitHub Pages / hosts without those headers: keep the COI service worker
     //   registered and controlling forever. Unregistering after isolation is
-    //   achieved leaves worker fetches of AtomVM.mjs without CORP → COEP blocks them.
+    //   achieved leaves worker fetches of beam.wasm without CORP → COEP blocks them.
     (function () {
       function loadApp() {
         var s = document.createElement("script");

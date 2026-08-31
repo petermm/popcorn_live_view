@@ -22,9 +22,9 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          # Popcorn 0.3.x requires exact OTP 26.0.2 when compiling the dep.
-          otp-version: "26.0.2"
-          elixir-version: "1.17.3"
+          # Host toolchain for packing OTP/BEAM wasm apps (runtime is OTP 28.3.1).
+          otp-version: "28.3.1"
+          elixir-version: "1.19.5"
 
       - uses: actions/setup-node@v4
         with:
@@ -42,15 +42,14 @@ jobs:
         env:
           SCRIPT_NAME: /popcorn_live_view
 
-      - name: Verify AtomVM runtime artifacts
+      - name: Verify OTP/BEAM wasm artifacts
         run: |
           set -euo pipefail
-          test -f static/wasm/bundle.avm
-          test -f static/wasm/AtomVM.wasm
-          test -f static/wasm/AtomVM.mjs
-          test -f static/wasm/popcorn.mjs
-          test -f static/wasm/iframe.mjs
-          ls -la static/wasm/
+          test -f static/assets/app.js
+          test -f static/assets/beam.wasm
+          test -f static/assets/worker.mjs
+          test -d static/assets/otp
+          ls -la static/assets/ static/assets/otp/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

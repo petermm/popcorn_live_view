@@ -134,9 +134,8 @@ defmodule WasmLiveView.SolarForecastLive do
   # --- cache ---
 
   defp cache_key(lat, lon, tilt, direction, panel_size_kw) do
-    # Float.round/2 is not available in AtomVM — round via integer arithmetic
-    lat_r = round(lat * 100) / 100.0
-    lon_r = round(lon * 100) / 100.0
+    lat_r = Float.round(lat, 2)
+    lon_r = Float.round(lon, 2)
     {lat_r, lon_r, round(tilt), round(direction), panel_size_kw}
   end
 
@@ -155,9 +154,8 @@ defmodule WasmLiveView.SolarForecastLive do
 
   defp load_cache do
     case Popcorn.Wasm.run_js(
-           "({ args }) => { return [localStorage.getItem(args.key)]; }",
-           %{key: @storage_key},
-           return: :value
+           "(args) => localStorage.getItem(args.key)",
+           %{key: @storage_key}
          ) do
       {:ok, nil} ->
         %{}
@@ -192,7 +190,7 @@ defmodule WasmLiveView.SolarForecastLive do
     json = Jason.encode!(entries)
 
     Popcorn.Wasm.run_js(
-      "({ args }) => { localStorage.setItem(args.key, args.json); return []; }",
+      "(args) => { localStorage.setItem(args.key, args.json); }",
       %{key: @storage_key, json: json}
     )
   end
@@ -201,9 +199,8 @@ defmodule WasmLiveView.SolarForecastLive do
 
   defp load_settings do
     case Popcorn.Wasm.run_js(
-           "({ args }) => { return [localStorage.getItem(args.key)]; }",
-           %{key: @settings_key},
-           return: :value
+           "(args) => localStorage.getItem(args.key)",
+           %{key: @settings_key}
          ) do
       {:ok, nil} ->
         {5.0, 0, 30}
@@ -221,7 +218,7 @@ defmodule WasmLiveView.SolarForecastLive do
     json = Jason.encode!(%{panel_size_kw: panel_size_kw, direction: direction, tilt: tilt})
 
     Popcorn.Wasm.run_js(
-      "({ args }) => { localStorage.setItem(args.key, args.json); return []; }",
+      "(args) => { localStorage.setItem(args.key, args.json); }",
       %{key: @settings_key, json: json}
     )
   end

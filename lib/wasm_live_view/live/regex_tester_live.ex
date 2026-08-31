@@ -3,13 +3,6 @@ defmodule WasmLiveView.RegexTesterLive do
 
   import WasmLiveViewWeb.CoreComponents
 
-  # Only metadata — no anonymous functions (can't be escaped into module attributes)
-  @expected_failures [
-    :replace_backref_g_syntax,
-    :compile_recursion_error,
-    :compile_absent_operator_error
-  ]
-
   @tests [
     {:match_literal, "Regex.match? — literal string"},
     {:match_no_match, "Regex.match? — no match returns false"},
@@ -33,7 +26,8 @@ defmodule WasmLiveView.RegexTesterLive do
     {:run_no_match_with_offset, "Regex.run — no match after offset returns nil"},
     {:run_return_index_ascii, "Regex.run — return: :index on ASCII"},
     {:run_return_index_unicode, "Regex.run — return: :index on UTF-8"},
-    {:run_return_index_unmatched_group, "Regex.run — return:index unmatched group gives {-1,0}"},
+    {:run_return_index_unmatched_group,
+     "Regex.run — return:index omits unmatched optional group"},
     {:run_offset_ascii, "Regex.run — offset in bytes (ASCII)"},
     {:run_offset_unicode, "Regex.run — offset in bytes (UTF-8)"},
     {:run_lookahead, "Regex.run — positive lookahead"},
@@ -58,7 +52,7 @@ defmodule WasmLiveView.RegexTesterLive do
     {:replace_basic, "Regex.replace — simple replacement"},
     {:replace_backref, "Regex.replace — with back-reference"},
     {:replace_whole_match_backref, "Regex.replace — whole-match backref \\0"},
-    {:replace_backref_g_syntax, "Regex.replace — back-reference \\g{N} syntax (expected fail)"},
+    {:replace_backref_g_syntax, "Regex.replace — back-reference \\g{N} syntax"},
     {:replace_global_false, "Regex.replace — global: false replaces first only"},
     {:replace_function, "Regex.replace — replacement function"},
     {:replace_function_with_captures, "Regex.replace — replacement function with captures"},
@@ -69,34 +63,30 @@ defmodule WasmLiveView.RegexTesterLive do
     {:compile_invalid_option, "Regex.compile — invalid option is rejected"},
     {:compile_pcre_named_capture, "Regex.compile — (?P<name>...) syntax"},
     {:compile_atomic_group, "Regex.compile — atomic groups (PCRE compatibility)"},
-    {:compile_possessive_quantifier_error, "Regex.compile — possessive quantifier unsupported"},
-    {:compile_conditional_group_error, "Regex.compile — conditional group unsupported"},
-    {:compile_branch_reset_error, "PCRE2 target — branch reset (?|...) (compile fallback, partial)"},
-    {:compile_recursion_error, "PCRE2 target — recursion (?R) (expected fail)"},
-    {:compile_subroutine_error, "PCRE2 target — subroutine call (?1) (compile fallback, partial)"},
-    {:compile_backtracking_verb_error,
-     "PCRE2 target — backtracking verbs (*SKIP)(*FAIL) (compile fallback, partial)"},
-    {:compile_callout_error, "PCRE2 target — callout (?C...) (compile fallback, partial)"},
-    {:compile_absent_operator_error, "PCRE2 target — absent operator (?~...) (expected fail)"},
-    {:compile_keep_operator_error, "PCRE2 target — keep operator \\K (compile fallback, partial)"},
+    {:compile_possessive_quantifier_error, "Regex.compile — possessive quantifier a++"},
+    {:compile_conditional_group_error, "Regex.compile — conditional group (?(1)…)"},
+    {:compile_branch_reset_error, "PCRE2 — branch reset (?|...)"},
+    {:compile_recursion_error, "PCRE2 — recursion (?R)"},
+    {:compile_subroutine_error, "PCRE2 — subroutine call (?1)"},
+    {:compile_backtracking_verb_error, "PCRE2 — backtracking verbs (*SKIP)(*FAIL)"},
+    {:compile_callout_error, "PCRE2 — callout (?C...)"},
+    {:compile_absent_operator_error, "PCRE2 — absent operator (?~...) is rejected"},
+    {:compile_keep_operator_error, "PCRE2 — keep operator \\K compiles"},
     {:compile_keep_operator_runtime_semantics,
-     "PCRE2 target — keep operator \\K runtime semantics (partial, fixed-prefix)"},
-    {:compile_keep_operator_capture_left,
-     "PCRE2 target — keep operator \\K keeps left captures available"},
-    {:compile_keep_operator_index,
-     "PCRE2 target — keep operator \\K adjusts whole-match index only"},
-    {:compile_keep_operator_scan,
-     "PCRE2 target — keep operator \\K works with Regex.scan global matches"},
-    {:run_pcre_named_backref, "PCRE2 target — named backref (?P=name)"},
-    {:match_pcre_Z_anchor, "PCRE2 target — \\Z end anchor before final newline"},
-    {:match_pcre_R_newline, "PCRE2 target — \\R newline sequence class"},
-    {:match_pcre_hv_classes, "PCRE2 target — \\h/\\H and \\v/\\V classes"},
-    {:optional_unmatched_group, "Regex.run — unmatched optional capture is empty"},
+     "PCRE2 — keep operator \\K runtime match is suffix"},
+    {:compile_keep_operator_capture_left, "PCRE2 — keep operator \\K keeps left captures"},
+    {:compile_keep_operator_index, "PCRE2 — keep operator \\K adjusts whole-match index"},
+    {:compile_keep_operator_scan, "PCRE2 — keep operator \\K works with Regex.scan"},
+    {:run_pcre_named_backref, "PCRE2 — named backref (?P=name)"},
+    {:match_pcre_Z_anchor, "PCRE2 — \\Z end anchor before final newline"},
+    {:match_pcre_R_newline, "PCRE2 — \\R newline sequence class"},
+    {:match_pcre_hv_classes, "PCRE2 — \\h/\\H and \\v/\\V classes"},
+    {:optional_unmatched_group, "Regex.run — unmatched optional capture is omitted"},
     {:non_capturing_group, "Regex.run — non-capturing groups"},
     {:lookbehind, "Regex.run — lookbehind support"},
     {:non_greedy_quantifier, "Regex.run — non-greedy quantifier"},
     {:alternation_leftmost, "Regex.run — alternation prefers leftmost-first branch"},
-    {:nested_optional_groups, "Regex.run — nested optionals keep unmatched capture empty"},
+    {:nested_optional_groups, "Regex.run — nested optionals omit unmatched captures"},
     {:unicode_property_class, "Unicode — property class \\p{Sc}"},
     {:unicode_posix_class, "Unicode — POSIX class [[:lower:]] with /u"},
     {:unicode_word_class, "Unicode — \\w with /u matches accented letters"},
@@ -185,7 +175,7 @@ defmodule WasmLiveView.RegexTesterLive do
     do: Regex.run(~r/é/u, "aé", return: :index) == [{1, 2}]
 
   defp run_test(:run_return_index_unmatched_group),
-    do: Regex.run(~r/(a)?b/, "b", return: :index) == [{0, 1}, {-1, 0}]
+    do: Regex.run(~r/(a)?b/, "b", return: :index) == [{0, 1}]
 
   defp run_test(:run_offset_ascii),
     do: Regex.run(~r/\d+/, "a1 b22 c333", offset: 3) == ["22"]
@@ -302,10 +292,10 @@ defmodule WasmLiveView.RegexTesterLive do
     do: match?({:ok, %Regex{}}, Regex.compile("(?>a|ab)c"))
 
   defp run_test(:compile_possessive_quantifier_error),
-    do: match?({:error, _}, Regex.compile("a++"))
+    do: match?({:ok, %Regex{}}, Regex.compile("a++"))
 
   defp run_test(:compile_conditional_group_error),
-    do: match?({:error, _}, Regex.compile("(a)?(?(1)b|c)"))
+    do: match?({:ok, %Regex{}}, Regex.compile("(a)?(?(1)b|c)"))
 
   defp run_test(:compile_branch_reset_error),
     do: match?({:ok, %Regex{}}, Regex.compile("(?|a|b)"))
@@ -323,7 +313,7 @@ defmodule WasmLiveView.RegexTesterLive do
     do: match?({:ok, %Regex{}}, Regex.compile("(?C1)a"))
 
   defp run_test(:compile_absent_operator_error),
-    do: match?({:ok, %Regex{}}, Regex.compile("(?~foo)"))
+    do: match?({:error, _}, Regex.compile("(?~foo)"))
 
   defp run_test(:compile_keep_operator_error),
     do: match?({:ok, %Regex{}}, Regex.compile("foo\\Kbar", "u"))
@@ -335,7 +325,8 @@ defmodule WasmLiveView.RegexTesterLive do
     do: Regex.run(Regex.compile!("(foo)\\Kbar", "u"), "foobar") == ["bar", "foo"]
 
   defp run_test(:compile_keep_operator_index),
-    do: Regex.run(Regex.compile!("(foo)\\Kbar", "u"), "foobar", return: :index) == [{3, 3}, {0, 3}]
+    do:
+      Regex.run(Regex.compile!("(foo)\\Kbar", "u"), "foobar", return: :index) == [{3, 3}, {0, 3}]
 
   defp run_test(:compile_keep_operator_scan),
     do: Regex.scan(Regex.compile!("foo\\Kbar", "u"), "foobar xx foobar") == [["bar"], ["bar"]]
@@ -361,7 +352,7 @@ defmodule WasmLiveView.RegexTesterLive do
         Regex.match?(Regex.compile!("^\\V+$", "u"), "ab") == true
 
   defp run_test(:optional_unmatched_group),
-    do: Regex.run(~r/(a)?b/, "b") == ["b", ""]
+    do: Regex.run(~r/(a)?b/, "b") == ["b"]
 
   defp run_test(:non_capturing_group),
     do: Regex.run(~r/(?:ab)+/, "ababx") == ["abab"]
@@ -376,7 +367,7 @@ defmodule WasmLiveView.RegexTesterLive do
     do: Regex.run(~r/foo|foobar/, "foobar") == ["foo"]
 
   defp run_test(:nested_optional_groups),
-    do: Regex.run(~r/(a(b)?)?c/, "c") == ["c", "", ""]
+    do: Regex.run(~r/(a(b)?)?c/, "c") == ["c"]
 
   defp run_test(:unicode_property_class),
     do: Regex.scan(~r/\p{Sc}/u, "$, £, and €") == [["$"], ["£"], ["€"]]
@@ -432,9 +423,7 @@ defmodule WasmLiveView.RegexTesterLive do
       Enum.each(@tests, fn {key, _desc} ->
         send(lv, {:test_start, key})
 
-        result =
-          run_test_with_timeout(key, 1_500)
-          |> normalize_expected_failure(key)
+        result = run_test_with_timeout(key, 1_500)
 
         send(lv, {:test_result, key, result})
       end)
@@ -489,29 +478,8 @@ defmodule WasmLiveView.RegexTesterLive do
     end
   end
 
-  defp normalize_expected_failure(result, key) do
-    if key in @expected_failures do
-      case result do
-        {:error, reason} -> {:ok, "expected fail: #{reason}"}
-        {:ok, _} -> {:error, "unexpected pass (was marked expected fail)"}
-      end
-    else
-      result
-    end
-  end
-
-  defp expected_failure?(key), do: key in @expected_failures
-
-  defp real_pass_count(results) do
-    Enum.count(results, fn {k, v} -> !expected_failure?(k) and match?({:ok, _}, v) end)
-  end
-
-  defp expected_fail_count(results) do
-    Enum.count(results, fn {k, v} -> expected_failure?(k) and match?({:ok, _}, v) end)
-  end
-
   defp pass_count(results) do
-    real_pass_count(results) + expected_fail_count(results)
+    Enum.count(results, fn {_k, v} -> match?({:ok, _}, v) end)
   end
 
   @impl true
@@ -523,7 +491,8 @@ defmodule WasmLiveView.RegexTesterLive do
     <.header>
       Regex Tester
       <:subtitle>
-        Tests for the <code class="font-mono">:re</code> stub — JavaScript RegExp backing Elixir's Regex module in AtomVM WASM.
+        Elixir <code class="font-mono">Regex</code> on Popcorn's OTP 28 PCRE2
+        <code class="font-mono">:re</code> BIF (not the old AtomVM JavaScript stub).
       </:subtitle>
     </.header>
 
@@ -537,7 +506,6 @@ defmodule WasmLiveView.RegexTesterLive do
         </span>
         <span :if={map_size(@results) > 0 && !@loading} class="text-sm text-base-content/60">
           {pass_count(@results)}/{@total} passed
-          ({real_pass_count(@results)} real, {expected_fail_count(@results)} expected)
         </span>
       </div>
 
@@ -561,25 +529,17 @@ defmodule WasmLiveView.RegexTesterLive do
       <div class="rounded-lg bg-base-200 border border-base-300 px-4 py-3 text-xs text-base-content/70 space-y-1">
         <p class="font-semibold text-base-content/80">How it works</p>
         <p>
-          The <code class="font-mono">:re</code> stub in <code class="font-mono">stubs/re_stub.erl</code>
-          delegates <code class="font-mono">:re.compile/2</code>, <code class="font-mono">:re.run/3</code>,
-          and <code class="font-mono">:re.inspect/2</code> to JavaScript's <code class="font-mono">RegExp</code>
-          via <code class="font-mono">Popcorn.Wasm.run_js!</code>.
-          Byte-accurate offsets are computed using <code class="font-mono">TextEncoder</code> (UTF-8).
+          Regex now uses OTP 28's <code class="font-mono">:re</code> BIF (PCRE2 linked into the
+          wasm emulator), the same engine as desktop Elixir. Compile-time <code class="font-mono">~r</code>
+          sigils are exported on the host and imported in the VM via
+          <code class="font-mono">:re.import/1</code>.
         </p>
         <p>
-          Known limitation: <code class="font-mono">Regex.replace</code> with
-          <code class="font-mono">\\g{N}</code> back-references is expected to fail on current
-          AtomVM/WASM builds due to missing NIF support (`binary:list_to_bin/1`) in the
-          replacement parser path.
-        </p>
-        <p>
-          Rows marked <code class="font-mono">(expected fail)</code> are tracked limitations;
-          any unmarked failing row is a regression.
-        </p>
-        <p>
-          Rows marked <code class="font-mono">(compile fallback, partial)</code> only guarantee
-          compile compatibility or limited semantics, not full PCRE2 equivalence.
+          PCRE2 omits unmatched optional capture groups (they are not empty strings
+          or <code class="font-mono">-1</code> index pairs). Possessive quantifiers,
+          conditionals, recursion, <code class="font-mono">{"\\K"}</code>, and
+          <code class="font-mono">{"\\g{N}"}</code> replace work. Perl's absent operator
+          <code class="font-mono">(?~...)</code> is still rejected.
         </p>
       </div>
     </div>

@@ -1,7 +1,7 @@
 /*
  * coi-serviceworker — injects Cross-Origin-Opener-Policy: same-origin,
  * Cross-Origin-Embedder-Policy: require-corp, and Cross-Origin-Resource-Policy:
- * cross-origin so SharedArrayBuffer + AtomVM module workers work on hosts
+ * cross-origin so SharedArrayBuffer + OTP/BEAM wasm module workers work on hosts
  * (like GitHub Pages) that don't support custom HTTP headers.
  *
  * Adapted from https://github.com/gzuidhof/coi-serviceworker (MIT)
@@ -9,9 +9,10 @@
  * Notes:
  * - On localhost, server.exs already sets COOP/COEP; prefer not registering this SW.
  * - Must not invent 502s: if re-headering fails, fall through to the network response.
- * - Module workers reload AtomVM.mjs; re-wrapping gzip responses can break them, so
- *   strip content-encoding/content-length when cloning (body stream is already decoded
- *   by the browser in modern SW fetch, or we re-fetch without Accept-Encoding).
+ * - Module workers reload beam.wasm / worker.mjs; re-wrapping gzip responses can
+ *   break them, so strip content-encoding/content-length when cloning (body stream
+ *   is already decoded by the browser in modern SW fetch, or we re-fetch without
+ *   Accept-Encoding).
  */
 
 self.addEventListener("install", () => self.skipWaiting());
@@ -94,9 +95,9 @@ async function handleSameOrigin(request) {
     const headers = new Headers(response.headers);
 
     // Our own pages/assets: inject full cross-origin isolation headers so
-    // SharedArrayBuffer / WASM threads (and AtomVM module workers) work.
+    // SharedArrayBuffer / WASM threads (and OTP/BEAM wasm module workers) work.
     // Prefer require-corp + CORP everywhere — credentialless is rejected by
-    // Safari/WebKit when spawning dedicated module workers for AtomVM.mjs.
+    // Safari/WebKit when spawning dedicated module workers for worker.mjs.
     headers.set("Cross-Origin-Opener-Policy", "same-origin");
     headers.set("Cross-Origin-Embedder-Policy", "require-corp");
     headers.set("Cross-Origin-Resource-Policy", "cross-origin");

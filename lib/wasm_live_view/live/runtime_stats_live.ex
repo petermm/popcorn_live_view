@@ -78,7 +78,7 @@ defmodule WasmLiveView.RuntimeStatsLive do
   @initial_process_delta %{added: [], removed_count: 0, total: 0}
 
   @js_stats_script """
-  ({ wasm, args, iframeWindow }) => {
+  (args, { send }) => {
     const stats = {};
     const perfMemory = globalThis.performance?.memory;
 
@@ -91,49 +91,9 @@ defmodule WasmLiveView.RuntimeStatsLive do
     stats.hardwareConcurrency = navigator.hardwareConcurrency || 0;
     stats.userAgent = navigator.userAgent;
     stats.language = navigator.language;
+    stats.crossOriginIsolated = self.crossOriginIsolated ? "yes" : "no";
 
-    let memBytes = null;
-    let memSource = null;
-
-    // Popcorn 0.3 AtomVM is built without wasmMemory/HEAP* in
-    // EXPORTED_RUNTIME_METHODS. Emscripten installs aborting getters for those
-    // names, so even optional chaining (`wasm.wasmMemory?.x`) aborts the VM.
-    // Only read data properties (value present); skip accessor traps.
-    const safeGet = (obj, key) => {
-      if (!obj || (typeof obj !== "object" && typeof obj !== "function")) return undefined;
-      try {
-        const desc = Object.getOwnPropertyDescriptor(obj, key);
-        if (!desc || !("value" in desc)) return undefined;
-        return desc.value;
-      } catch (_e) {
-        return undefined;
-      }
-    };
-
-    const wasmMemorySources = [
-      ["wasm.wasmMemory.buffer", () => safeGet(safeGet(wasm, "wasmMemory"), "buffer")],
-      ["wasm.HEAPU8.buffer", () => safeGet(safeGet(wasm, "HEAPU8"), "buffer")],
-      ["wasm.HEAP8.buffer", () => safeGet(safeGet(wasm, "HEAP8"), "buffer")]
-    ];
-
-    for (const [source, getBuffer] of wasmMemorySources) {
-      const buffer = getBuffer();
-      if (buffer && typeof buffer.byteLength === "number") {
-        memBytes = buffer.byteLength;
-        memSource = source;
-        break;
-      }
-    }
-
-    if (memBytes !== null) {
-      stats.wasmMemoryBytes = memBytes;
-      stats.wasmMemoryPages = Math.trunc(memBytes / 65536);
-      stats.wasmMemSource = memSource;
-    }
-
-    stats.crossOriginIsolated = iframeWindow.crossOriginIsolated ? "yes" : "no";
-
-    wasm.cast(args.receiver, { js_stats: stats, sample_id: args.sample_id });
+    send(args.receiver, { js_stats: stats, sample_id: args.sample_id });
   }
   """
 
@@ -145,7 +105,7 @@ defmodule WasmLiveView.RuntimeStatsLive do
   defp run_probe(:version), do: :erlang.system_info(:version) |> to_string()
   defp run_probe(:machine), do: :erlang.system_info(:machine) |> to_string()
   defp run_probe(:wordsize), do: :erlang.system_info(:wordsize)
-  defp run_probe(:platform), do: :atomvm.platform() |> to_string()
+  defp run_probe(:platform), do: "otp-wasm"
   defp run_probe(:memory), do: :erlang.memory()
 
   @impl true
@@ -351,7 +311,11 @@ defmodule WasmLiveView.RuntimeStatsLive do
   # process_count metric by spawning helper samplers on every refresh.
   defp collect_runtime_stats(socket) do
     {stats, failed_probes} =
-      Enum.reduce(socket.assigns.available_probes, {%{}, socket.assigns.failed_probes}, &collect_probe/2)
+      Enum.reduce(
+        socket.assigns.available_probes,
+        {%{}, socket.assigns.failed_probes},
+        &collect_probe/2
+      )
 
     socket
     |> assign(
@@ -380,9 +344,7 @@ defmodule WasmLiveView.RuntimeStatsLive do
     end
   end
 
-  defp probe_supported?(:platform) do
-    Code.ensure_loaded?(:atomvm) and function_exported?(:atomvm, :platform, 0)
-  end
+  defp probe_supported?(:platform), do: true
 
   defp probe_supported?(:memory), do: function_exported?(:erlang, :memory, 0)
   defp probe_supported?(_key), do: true
@@ -461,7 +423,8 @@ defmodule WasmLiveView.RuntimeStatsLive do
   end
 
   defp process_initial_call(pid) do
-    if Code.ensure_loaded?(:proc_lib) and function_exported?(:proc_lib, :translate_initial_call, 1) do
+    if Code.ensure_loaded?(:proc_lib) and
+         function_exported?(:proc_lib, :translate_initial_call, 1) do
       case safe_call(fn -> :proc_lib.translate_initial_call(pid) end, nil) do
         {mod, fun, arity} -> "#{mod}.#{fun}/#{arity}"
         _ -> nil
@@ -578,8 +541,8 @@ defmodule WasmLiveView.RuntimeStatsLive do
       {:DOWN, ^ref, :process, ^lv, _reason} ->
         :ok
 
-      {:emscripten, _} = raw ->
-        handle_js_stats_message(raw, lv)
+      {:wasm, payload} ->
+        handle_js_stats_message(payload, lv)
         js_stats_receiver_loop(lv, ref)
 
       _msg ->
@@ -587,11 +550,11 @@ defmodule WasmLiveView.RuntimeStatsLive do
     end
   end
 
-  defp handle_js_stats_message(raw, lv) do
+  defp handle_js_stats_message(payload, lv) do
     safe_call(
       fn ->
-        case Popcorn.Wasm.parse_message!(raw) do
-          {:wasm_cast, %{"js_stats" => stats, "sample_id" => sample_id}} ->
+        case payload do
+          %{"js_stats" => stats, "sample_id" => sample_id} ->
             send(lv, {:js_stats, sample_id, stats})
 
           _ ->
@@ -767,7 +730,7 @@ defmodule WasmLiveView.RuntimeStatsLive do
     <.header>
       Runtime Stats
       <:subtitle>
-        Session stats for the AtomVM runtime in this page, plus a few browser-side metrics when the
+        Session stats for the OTP/BEAM wasm runtime in this page, plus a few browser-side metrics when the
         browser exposes them.
       </:subtitle>
     </.header>
@@ -962,7 +925,7 @@ defmodule WasmLiveView.RuntimeStatsLive do
     ~H"""
     <div class="card bg-base-200 shadow mb-6">
       <div class="card-body p-4">
-        <h3 class="card-title text-sm">Unavailable in AtomVM</h3>
+        <h3 class="card-title text-sm">Unavailable in this runtime</h3>
         <div class="flex flex-wrap gap-2">
           <span :for={probe <- Enum.sort(@failed_probes)} class="badge badge-ghost badge-sm">
             {to_string(probe)}

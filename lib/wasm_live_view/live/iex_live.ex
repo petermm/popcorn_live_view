@@ -74,14 +74,14 @@ defmodule WasmLiveView.IexLive do
 
     <div class="mt-1 text-sm text-base-content/60 space-y-1">
       <p>
-        Runs on <strong>AtomVM</strong> — a lightweight BEAM implementation.
+        Runs on Popcorn's <strong>OTP/BEAM wasm</strong> runtime.
         Most basic Elixir expressions work. HTTP via <code>Req</code> is
         available — <code>WasmFetchAdapter</code> is set as the default adapter
         at startup, so <code>Req.get!("https://…")</code> works directly.
       </p>
       <p>
-        Arrow-up/down history is implemented in the JS hook (AtomVM's
-        <code>edlin</code> doesn't handle escape sequences). Up to 200 entries,
+        Arrow-up/down history is implemented in the JS hook (the wasm TTY
+        doesn't handle escape sequences). Up to 200 entries,
         persisted in <code>localStorage</code>.
       </p>
     </div>
